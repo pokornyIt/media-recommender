@@ -4,9 +4,11 @@
   ],
   "cSpell.words": [
     "docstrings",
+    "httpx",
     "Jellyfin",
     "pathlib",
     "poolclass",
+    "Pydantic",
     "selectinload",
     "TMDB"
   ]

@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Self
 
-from pydantic import field_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -36,3 +36,24 @@ class Settings(BaseSettings):
         :return: SQLite URL using the ``aiosqlite`` driver.
         """
         return URL.create("sqlite+aiosqlite", database=str(self.database_path))
+
+
+class ProviderHttpSettings(BaseModel):
+    """Shared timeout settings for outbound provider HTTP clients."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    read_timeout_seconds: float = Field(default=10.0, gt=0)
+    write_timeout_seconds: float = Field(default=10.0, gt=0)
+    pool_timeout_seconds: float = Field(default=5.0, gt=0)
+
+
+class ProviderSettings(BaseSettings):
+    """Validated settings shared by authenticated metadata providers."""
+
+    model_config = SettingsConfigDict(frozen=True, extra="forbid")
+
+    base_url: AnyHttpUrl
+    api_token: SecretStr = Field(min_length=1)
+    http: ProviderHttpSettings = ProviderHttpSettings()
