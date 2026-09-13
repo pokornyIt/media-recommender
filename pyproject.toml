@@ -56,6 +56,12 @@ typeCheckingMode = "strict"
 style = "sphinx"
 arg-type-hints-in-docstring = false
 check-return-types = false
+check-yield-types = false
+check-class-attributes = false
+skip-checking-short-docstrings = false
+skip-checking-private-functions = false
+native-mode-noqa-location = "definition"
+allow-init-docstring = true
 exclude = "tests"
 
 [tool.pytest.ini_options]

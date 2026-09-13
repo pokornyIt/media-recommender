@@ -32,8 +32,11 @@ config.yaml
 config.local.yaml
 
 # Local databases
+data/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 

@@ -183,6 +183,31 @@ uv run pre-commit run --all-files
 Application code uses the `src/media_recommender` package layout. Runtime dependencies are kept separate from the
 development tools declared in the `dev` dependency group.
 
+### Local database
+
+The shared media catalog uses SQLite. Its path defaults to `data/media-recommender.db` and can be changed with the
+`MEDIA_RECOMMENDER_DATABASE_PATH` environment variable. Database files under `data/`, SQLite sidecar files, and files
+ending in `.db` are ignored by Git because catalog data is private runtime state.
+
+Schema management is explicit and migration-driven. Upgrade the configured database before running code that uses the
+catalog repository:
+
+```bash
+task db:upgrade
+# Equivalent command:
+uv run alembic upgrade head
+```
+
+Create a migration after intentionally changing the persistence models, review the generated operations, and verify
+that it upgrades a clean database:
+
+```bash
+uv run alembic revision --autogenerate -m "describe schema change"
+```
+
+Creating an application database engine or session does not create or recreate tables. Normal application startup is
+therefore expected to fail clearly when migrations have not been applied, rather than silently changing the schema.
+
 ## License
 
 License information will be added as the project structure is established.

@@ -29,6 +29,11 @@ tasks:
       - uv sync --frozen
       - uv run pre-commit install
 
+  db:upgrade:
+    desc: "Upgrade the configured database to the latest schema"
+    cmds:
+      - uv run alembic upgrade head
+
   test:
     desc: "Run the test suite"
     cmds:
