@@ -28,7 +28,9 @@ Media Recommender combines several kinds of information:
 * personal viewing history;
 * personal ratings and preferences;
 * deterministic filtering and recommendation rules;
-* optional AI-assisted natural-language interaction.
+* optional AI-assisted natural-language interaction;
+* Personal viewing history, ratings, preferences, and provider mappings are user/profile-specific,
+  while media catalog metadata is shared application data.
 
 ## Architecture
 
@@ -146,6 +148,9 @@ The application should prefer local storage for personal data wherever practical
 Media Recommender is currently in the early design and bootstrap stage.
 
 Architecture, integrations, and implementation details may change significantly before the first stable release.
+
+Multi-user profile management and authentication are planned future capabilities and are not part
+of the initial v0.1.0 scope.
 
 ## License
 

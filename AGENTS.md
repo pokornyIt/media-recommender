@@ -30,6 +30,12 @@ Follow these principles unless an issue explicitly requires otherwise:
 * Use AI primarily for natural-language interpretation, conversational refinement, and explanation.
 * Do not make basic recommendation functionality dependent on an external AI service.
 * Keep personal user data and secrets outside the source repository.
+* Keep shared media/catalog data separate from user-specific state.
+* Personal history, ratings, preferences, exclusions, and provider-account mappings must have explicit
+  internal ownership once introduced.
+* Do not use an external provider identity such as Jellyfin or Netflix as the canonical application user identity.
+* Multi-user profile management and authentication are future concerns; do not introduce unused authentication
+  complexity before it is required.
 
 Avoid duplicating business logic across interfaces or integrations.
 
