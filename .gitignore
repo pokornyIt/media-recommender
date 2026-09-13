@@ -9,6 +9,8 @@ __pycache__/
 # Test, lint, and coverage artifacts
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.pyright/
 .coverage
 .coverage.*
 coverage.xml
@@ -28,6 +30,12 @@ dist/
 !.env.example
 config.yaml
 config.local.yaml
+
+# Local databases
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
 
 # Logs
 *.log
