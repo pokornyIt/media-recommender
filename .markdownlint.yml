@@ -1,0 +1,12 @@
+---
+default: true
+
+MD013:
+  line_length: 120
+  strict: true
+
+# https://updownpress.github.io/markdown-lint
+MD024: false # Allow duplicate headings
+MD025: false # Allow multiple top-level headings
+MD036: false # Allow emphasis used instead of a header
+MD041: false # Allow first line to be a top-level heading
