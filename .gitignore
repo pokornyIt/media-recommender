@@ -1,0 +1,51 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+
+# Test, lint, and coverage artifacts
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+
+# Local uv cache
+.uv-cache/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config.yaml
+config.local.yaml
+
+# Logs
+*.log
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Other editors
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+Desktop.ini
+Thumbs.db
