@@ -47,3 +47,7 @@ class MediaCatalogWriter(Protocol):
         :param media: Normalized media item to store.
         """
         ...
+
+
+class MediaCatalog(MediaCatalogReader, MediaCatalogWriter, Protocol):
+    """Read and write normalized media through one persistence boundary."""

@@ -208,6 +208,19 @@ uv run alembic revision --autogenerate -m "describe schema change"
 Creating an application database engine or session does not create or recreate tables. Normal application startup is
 therefore expected to fail clearly when migrations have not been applied, rather than silently changing the schema.
 
+### Catalog application service
+
+`CatalogService` is the provider-independent entry point for catalog workflows used by future Web, REST, and MCP
+interfaces. It searches explicitly selected configured metadata providers, synchronizes normalized detail into the
+catalog, and retrieves persisted media by internal or external identity. A refresh preserves the internal application
+identity while replacing catalog metadata with the provider's latest normalized detail; missing detail fields clear
+previously stored values instead of retaining stale metadata.
+
+Each repository write owns one database transaction. Provider calls complete before that transaction starts, and a
+persistence error rolls back the complete write. Provider failures and persistence failures are propagated for an
+interface layer to translate, while missing providers, missing details, and mismatched provider results use explicit
+application-service errors. External-ID conflicts are never resolved through title/year heuristics.
+
 ### Metadata provider development
 
 External metadata integrations use a shared provider contract and asynchronous HTTP infrastructure. See
