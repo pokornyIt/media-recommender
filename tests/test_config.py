@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from media_recommender.config import ProviderHttpSettings, ProviderSettings, Settings
+from media_recommender.config import ProviderHttpSettings, ProviderSettings, Settings, TmdbSettings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -53,3 +53,26 @@ def test_provider_api_token_must_not_be_empty() -> None:
     """Verify empty provider credentials are rejected during configuration."""
     with pytest.raises(ValidationError):
         ProviderSettings.model_validate({"base_url": "https://provider.invalid", "api_token": ""})
+
+
+def test_tmdb_settings_validate_locale_and_mask_token() -> None:
+    """Verify TMDB options and credentials are validated without exposing secrets."""
+    settings = TmdbSettings.model_validate({"api_token": SecretStr("synthetic-token"), "language": "cs-CZ"})
+
+    assert str(settings.base_url) == "https://api.themoviedb.org/3/"
+    assert settings.language == "cs-CZ"
+    assert "synthetic-token" not in repr(settings)
+
+    with pytest.raises(ValidationError):
+        TmdbSettings.model_validate({"api_token": "synthetic-token", "language": "invalid"})
+
+
+def test_tmdb_settings_load_provider_options_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify TMDB credentials and locale use the provider-specific environment prefix."""
+    monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", "synthetic-environment-token")
+    monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_LANGUAGE", "cs-CZ")
+
+    settings = TmdbSettings()  # pyright: ignore[reportCallIssue] - BaseSettings supplies required values from env.
+
+    assert settings.api_token.get_secret_value() == "synthetic-environment-token"
+    assert settings.language == "cs-CZ"

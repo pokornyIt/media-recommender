@@ -5,11 +5,13 @@
   "cSpell.words": [
     "docstrings",
     "httpx",
+    "imdb",
     "Jellyfin",
     "pathlib",
     "poolclass",
     "Pydantic",
     "selectinload",
-    "TMDB"
+    "TMDB",
+    "tvdb"
   ]
 }
