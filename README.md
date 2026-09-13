@@ -152,6 +152,37 @@ Architecture, integrations, and implementation details may change significantly 
 Multi-user profile management and authentication are planned future capabilities and are not part
 of the initial v0.1.0 scope.
 
+## Local development
+
+Install [uv](https://docs.astral.sh/uv/) and ensure Python 3.14 is available. The project also provides an optional
+[Task](https://taskfile.dev/) command runner. With Task installed, bootstrap the development environment and run all
+quality checks with:
+
+```bash
+task bootstrap
+task pre-commit:all
+```
+
+For the regular incremental workflow, `task pre-commit` checks staged files only. `task pre-commit:add` first stages
+all working-tree changes and then runs the same staged-file checks.
+
+The equivalent direct commands create the reproducible environment from the committed lockfile, install the Git
+hooks, and run the complete local validation suite:
+
+```bash
+uv sync --frozen
+uv run pre-commit install
+uv run ruff format --check .
+uv run ruff check .
+uv run pyright
+uv run pydoclint src
+uv run pytest
+uv run pre-commit run --all-files
+```
+
+Application code uses the `src/media_recommender` package layout. Runtime dependencies are kept separate from the
+development tools declared in the `dev` dependency group.
+
 ## License
 
 License information will be added as the project structure is established.

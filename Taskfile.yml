@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: "3"
+
+tasks:
+  default:
+    cmds:
+      - task --list --sort=alphanumeric
+
+  pre-commit:
+    desc: "Run pre-commit checks for staged files"
+    cmds:
+      - uv run pre-commit run
+
+  pre-commit:add:
+    desc: "Stage all changes and run pre-commit checks"
+    cmds:
+      - git add .
+      - uv run pre-commit run
+
+  pre-commit:all:
+    desc: "Run all repository quality checks"
+    cmds:
+      - uv run pre-commit run --all-files
+
+  bootstrap:
+    desc: "Bootstrap the development environment"
+    cmds:
+      - uv sync --frozen
+      - uv run pre-commit install

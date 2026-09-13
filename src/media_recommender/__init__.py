@@ -1,0 +1,1 @@
+"""Media Recommender application package."""
