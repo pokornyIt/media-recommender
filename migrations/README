@@ -1,0 +1,5 @@
+Alembic migrations for the Media Recommender SQLite catalog.
+
+Use `uv run alembic upgrade head` to apply the schema configured by
+`MEDIA_RECOMMENDER_DATABASE_PATH`. See the repository README for the complete
+development workflow.

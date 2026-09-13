@@ -15,7 +15,10 @@ COUNTRY_CODE_LENGTH = 2
 
 
 def _empty_external_ids() -> frozenset[ExternalId]:
-    """Return an explicitly typed empty external-ID collection."""
+    """Return an explicitly typed empty external-ID collection.
+
+    :return: Empty immutable external-ID collection.
+    """
     return frozenset()
 
 
@@ -56,7 +59,10 @@ class ExternalId:
     value: str
 
     def __post_init__(self) -> None:
-        """Validate and normalize the external identifier."""
+        """Validate and normalize the external identifier.
+
+        :raises ValueError: If the namespace or identifier value is empty.
+        """
         namespace = self.namespace.strip().lower()
         value = self.value.strip()
         if not namespace:
@@ -76,7 +82,10 @@ class Genre:
     name: str
 
     def __post_init__(self) -> None:
-        """Validate and normalize the genre name."""
+        """Validate and normalize the genre name.
+
+        :raises ValueError: If the genre name is empty.
+        """
         name = self.name.strip()
         if not name:
             msg = "Genre name must not be empty"
@@ -92,7 +101,10 @@ class Country:
     name: str
 
     def __post_init__(self) -> None:
-        """Validate and normalize the country code and display name."""
+        """Validate and normalize the country code and display name.
+
+        :raises ValueError: If the country code or display name is invalid.
+        """
         code = self.code.strip().upper()
         name = self.name.strip()
         if len(code) != COUNTRY_CODE_LENGTH or not code.isascii() or not code.isalpha():
@@ -112,7 +124,10 @@ class Runtime:
     minutes: int
 
     def __post_init__(self) -> None:
-        """Reject non-positive or non-integer runtime values."""
+        """Reject non-positive or non-integer runtime values.
+
+        :raises ValueError: If the runtime is not a positive whole number.
+        """
         if isinstance(self.minutes, bool) or self.minutes <= 0:
             msg = "Runtime must be a positive whole number of minutes"
             raise ValueError(msg)
@@ -127,7 +142,10 @@ class Artwork:
     language: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate the artwork URL and normalize its optional language."""
+        """Validate the artwork URL and normalize its optional language.
+
+        :raises ValueError: If the URL is not absolute HTTP(S) or the language is empty.
+        """
         url = self.url.strip()
         parsed_url = urlparse(url)
         if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
@@ -155,7 +173,10 @@ class _MediaMetadata:
     external_ids: frozenset[ExternalId] = field(default_factory=_empty_external_ids)
 
     def __post_init__(self) -> None:
-        """Validate common metadata invariants and normalize titles."""
+        """Validate common metadata invariants and normalize titles.
+
+        :raises ValueError: If titles or external identifiers violate media invariants.
+        """
         title = self.title.strip()
         original_title = self.original_title.strip() if self.original_title is not None else None
         if not title:

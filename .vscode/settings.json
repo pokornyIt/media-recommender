@@ -6,6 +6,8 @@
     "docstrings",
     "Jellyfin",
     "pathlib",
+    "poolclass",
+    "selectinload",
     "TMDB"
   ]
 }
