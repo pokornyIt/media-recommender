@@ -208,6 +208,12 @@ uv run alembic revision --autogenerate -m "describe schema change"
 Creating an application database engine or session does not create or recreate tables. Normal application startup is
 therefore expected to fail clearly when migrations have not been applied, rather than silently changing the schema.
 
+### Metadata provider development
+
+External metadata integrations use a shared provider contract and asynchronous HTTP infrastructure. See
+[Provider integration conventions](docs/provider-integrations.md) for lifecycle, validation, error handling, retry,
+credential, mapping, and offline testing requirements.
+
 ## License
 
 License information will be added as the project structure is established.
