@@ -212,7 +212,7 @@ therefore expected to fail clearly when migrations have not been applied, rather
 
 External metadata integrations use a shared provider contract and asynchronous HTTP infrastructure. See
 [Provider integration conventions](docs/provider-integrations.md) for lifecycle, validation, error handling, retry,
-credential, mapping, and offline testing requirements.
+credential, mapping, offline testing requirements, and TMDB runtime configuration.
 
 ## License
 

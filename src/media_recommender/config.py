@@ -57,3 +57,20 @@ class ProviderSettings(BaseSettings):
     base_url: AnyHttpUrl
     api_token: SecretStr = Field(min_length=1)
     http: ProviderHttpSettings = ProviderHttpSettings()
+
+
+class TmdbSettings(ProviderSettings):
+    """Validated TMDB API and metadata presentation settings."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="MEDIA_RECOMMENDER_TMDB_",
+        env_nested_delimiter="__",
+        frozen=True,
+        extra="forbid",
+    )
+
+    base_url: AnyHttpUrl = AnyHttpUrl("https://api.themoviedb.org/3/")
+    image_base_url: AnyHttpUrl = AnyHttpUrl("https://image.tmdb.org/t/p/")
+    language: str = Field(default="en-US", pattern=r"^[a-z]{2}-[A-Z]{2}$")
+    poster_size: str = Field(default="w500", pattern=r"^(?:w[1-9][0-9]*|original)$")
+    backdrop_size: str = Field(default="w1280", pattern=r"^(?:w[1-9][0-9]*|original)$")
