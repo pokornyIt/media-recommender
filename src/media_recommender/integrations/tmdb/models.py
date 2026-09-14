@@ -105,6 +105,14 @@ def _empty_runtimes() -> list[int]:
     return []
 
 
+def _empty_watch_providers() -> list[TmdbWatchProvider]:
+    """Return an explicitly typed empty watch-provider list.
+
+    :return: Empty TMDB watch-provider list.
+    """
+    return []
+
+
 class TmdbExternalIds(TmdbDto):
     """Relevant identifiers appended to a TMDB detail response."""
 
@@ -161,3 +169,27 @@ class TmdbTvDetails(TmdbDto):
         :return: Value suitable for Pydantic date validation.
         """
         return None if value == "" else value
+
+
+class TmdbWatchProvider(TmdbDto):
+    """Streaming service embedded in a TMDB watch-provider response."""
+
+    provider_id: TmdbId
+    provider_name: TmdbText
+
+
+class TmdbRegionalWatchProviders(TmdbDto):
+    """Availability categories reported by TMDB for one region."""
+
+    flatrate: list[TmdbWatchProvider] = Field(default_factory=_empty_watch_providers)
+    rent: list[TmdbWatchProvider] = Field(default_factory=_empty_watch_providers)
+    buy: list[TmdbWatchProvider] = Field(default_factory=_empty_watch_providers)
+    free: list[TmdbWatchProvider] = Field(default_factory=_empty_watch_providers)
+    ads: list[TmdbWatchProvider] = Field(default_factory=_empty_watch_providers)
+
+
+class TmdbWatchProviderResponse(TmdbDto):
+    """Region-keyed movie or TV watch-provider response."""
+
+    id: TmdbId
+    results: dict[str, TmdbRegionalWatchProviders] = Field(default_factory=dict)

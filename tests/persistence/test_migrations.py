@@ -20,6 +20,7 @@ EXPECTED_TABLES = {
     "profiles",
     "provider_profile_mappings",
     "ratings",
+    "streaming_availability",
     "viewing_events",
     "watch_states",
 }
@@ -50,7 +51,7 @@ def test_migration_upgrades_an_empty_database_to_current_schema(tmp_path: Path) 
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
 
     assert tables == EXPECTED_TABLES
-    assert revision == ("8d7c2f19a4b6",)
+    assert revision == ("c91e2fa30d47",)
     command.check(config)
 
 
@@ -75,4 +76,4 @@ def test_migration_upgrades_phase_one_data_without_duplication(tmp_path: Path) -
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
 
     assert stored_media == [(media_id, "Existing Synthetic Movie")]
-    assert revision == ("8d7c2f19a4b6",)
+    assert revision == ("c91e2fa30d47",)

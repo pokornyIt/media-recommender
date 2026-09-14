@@ -53,6 +53,14 @@ and Wikidata IDs into provider-independent namespaces. Poster and backdrop paths
 configured image base URL and sizes. Missing dates, runtime, countries, genres, external IDs, or artwork remain absent
 instead of being inferred.
 
+The same provider retrieves TMDB's supported watch-provider data for a caller-selected ISO country code. Subscription,
+rent, buy, free, and ads-supported offers are normalized into shared regional availability facts. For example, Netflix
+in `CZ` is stored independently from Netflix in any other region. Each successful complete refresh atomically updates
+the selected media, region, and source snapshot, removes offers no longer returned, and records the observation time.
+TMDB is preserved as the API provenance source and the required JustWatch attribution is retained with every fact for
+future interfaces to display. The named streaming service is not treated as a personal account or proof of playback
+entitlement. Missing regions and missing offer categories remain empty rather than being inferred.
+
 ## Jellyfin
 
 Jellyfin is a personal-library source rather than the catalog metadata provider. `JellyfinClient` validates the

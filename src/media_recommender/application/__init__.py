@@ -1,5 +1,13 @@
 """Application-layer contracts and services."""
 
+from media_recommender.application.availability import (
+    AvailabilityOffer,
+    AvailabilityProvider,
+    AvailabilityRefreshResult,
+    AvailabilityRefreshService,
+    AvailabilityRefreshStatus,
+    AvailabilityRepository,
+)
 from media_recommender.application.catalog import MediaCatalog, MediaCatalogReader, MediaCatalogWriter
 from media_recommender.application.errors import (
     CatalogServiceError,
@@ -39,6 +47,12 @@ from media_recommender.application.providers import MediaSearchResult, MetadataP
 from media_recommender.application.services import CatalogService
 
 __all__ = [
+    "AvailabilityOffer",
+    "AvailabilityProvider",
+    "AvailabilityRefreshResult",
+    "AvailabilityRefreshService",
+    "AvailabilityRefreshStatus",
+    "AvailabilityRepository",
     "CatalogService",
     "CatalogServiceError",
     "IdentityResolver",

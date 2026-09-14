@@ -14,13 +14,17 @@ from media_recommender.integrations.tmdb.mapper import (
     map_movie_search_result,
     map_tv_details,
     map_tv_search_result,
+    map_watch_provider_offers,
 )
 from media_recommender.integrations.tmdb.models import (
     TmdbMovieDetails,
     TmdbMovieSearchResponse,
     TmdbTvDetails,
     TmdbTvSearchResponse,
+    TmdbWatchProviderResponse,
 )
+
+REGION_CODE_LENGTH = 2
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -28,13 +32,16 @@ if TYPE_CHECKING:
 
     import httpx
 
-    from media_recommender.application import MediaSearchResult
+    from media_recommender.application import AvailabilityOffer, MediaSearchResult
     from media_recommender.config import TmdbSettings
     from media_recommender.domain import ExternalId, Media
 
 
 class TmdbMetadataProvider:
     """Search and normalize movie and TV metadata from TMDB."""
+
+    source: str = "tmdb"
+    attribution: str | None = "JustWatch"
 
     def __init__(
         self,
@@ -142,6 +149,47 @@ class TmdbMetadataProvider:
             if error.status_code == HTTPStatus.NOT_FOUND:
                 return None
             raise
+
+    async def get_availability(
+        self,
+        external_id: ExternalId,
+        media_type: MediaType,
+        region: str,
+    ) -> Sequence[AvailabilityOffer]:
+        """Retrieve current normalized watch-provider offers for one region.
+
+        :param external_id: TMDB-namespaced numeric identity.
+        :param media_type: Kind of media to retrieve.
+        :param region: ISO 3166-1 alpha-2 region selected by the caller.
+        :return: Complete regional offer snapshot; empty for invalid, missing, or unavailable media.
+        :raises ValueError: If the region is not a valid country code.
+        :raises ProviderResponseError: If TMDB returns an unexpected non-success response.
+        """
+        normalized_region = region.strip().upper()
+        if (
+            len(normalized_region) != REGION_CODE_LENGTH
+            or not normalized_region.isascii()
+            or not normalized_region.isalpha()
+        ):
+            msg = "TMDB availability region must be a two-letter ISO 3166-1 alpha-2 code"
+            raise ValueError(msg)
+        tmdb_id = _parse_tmdb_id(external_id)
+        if tmdb_id is None:
+            return ()
+
+        media_path = "movie" if media_type is MediaType.MOVIE else "tv"
+        try:
+            response = await self._http.request_json(
+                "GET",
+                f"{media_path}/{tmdb_id}/watch/providers",
+                TmdbWatchProviderResponse,
+                headers=self._headers,
+            )
+        except ProviderResponseError as error:
+            if error.status_code == HTTPStatus.NOT_FOUND:
+                return ()
+            raise
+        return map_watch_provider_offers(response, normalized_region)
 
     async def _search_movies(self, query: str) -> tuple[MediaSearchResult, ...]:
         """Search the TMDB movie endpoint.

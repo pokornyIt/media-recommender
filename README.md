@@ -23,7 +23,7 @@ The application should remain useful without any AI provider configured.
 Media Recommender combines several kinds of information:
 
 * media metadata such as title, year, genres, runtime, production countries, and external identifiers;
-* streaming availability for a selected region;
+* streaming availability for a selected region, including access type, freshness, and source provenance;
 * local media availability, initially including Jellyfin;
 * personal viewing history;
 * personal ratings and preferences;
@@ -81,10 +81,11 @@ events, ratings and reactions, preferences and exclusions, and external provider
 reference the shared catalog rather than duplicating media metadata. Source record and synchronization identities make
 later supported imports repeatable without treating a provider identity as the application user.
 
-The Web, REST, MCP, recommendation, streaming-availability, and deployment layers shown above remain planned. Local
+The Web, REST, MCP, recommendation, and deployment layers shown above remain planned. Local
 Netflix Viewing Activity and supported ratings CSV imports now flow through the shared identity resolver into
 profile-owned personal state. Jellyfin movie and series libraries can be synchronized through its supported API,
-including distinct library presence and per-user watched state.
+including distinct library presence and per-user watched state. Regional streaming availability can be refreshed from
+TMDB watch-provider data and is stored separately from both personal state and local-library presence.
 
 ## Main project areas
 
@@ -95,7 +96,7 @@ Defines typed movie and TV-show domain models, configuration, persistence contra
 ### Media Sources and Metadata
 
 TMDB currently provides normalized movie and TV-show search and detail metadata, including genres, production
-countries, runtime, artwork, release information, and external identifiers. Streaming availability is not implemented.
+countries, runtime, artwork, release information, external identifiers, and regional watch-provider availability.
 
 ### Personal Media Data
 
@@ -172,8 +173,8 @@ The application can represent movies and TV shows, normalize TMDB metadata, pers
 personal media state in SQLite, and expose those workflows through provider-independent application contracts. The
 automated tests use synthetic data, temporary databases, and mock transports, so normal validation is fully offline.
 
-There is no executable application entry point, end-user interface, recommendation engine, streaming-availability
-integration, AI behavior, MCP interface, or production deployment yet.
+There is no executable application entry point, end-user interface, recommendation engine, AI behavior, MCP
+interface, or production deployment yet.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part
