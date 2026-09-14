@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from media_recommender.domain import (
+    LibraryPresence,
+    LibraryPresenceId,
     LikeState,
     MediaId,
     Preference,
@@ -26,6 +28,7 @@ from media_recommender.domain import (
     WatchStatus,
 )
 from media_recommender.persistence.models import (
+    LibraryPresenceRecord,
     PreferenceRecord,
     ProfileRecord,
     ProviderProfileMappingRecord,
@@ -44,7 +47,9 @@ def _timestamp_to_storage(value: datetime) -> str:
     return value.astimezone(UTC).isoformat()
 
 
-def _provenance_from_record(record: ViewingEventRecord | WatchStateRecord | RatingRecord) -> SourceProvenance:
+def _provenance_from_record(
+    record: ViewingEventRecord | WatchStateRecord | LibraryPresenceRecord | RatingRecord,
+) -> SourceProvenance:
     """Restore source provenance from a personal ORM record.
 
     :param record: Viewing event or rating persistence record.
@@ -55,6 +60,66 @@ def _provenance_from_record(record: ViewingEventRecord | WatchStateRecord | Rati
         source_record_id=record.source_record_id,
         synchronization_id=record.synchronization_id,
         imported_at=datetime.fromisoformat(record.imported_at),
+    )
+
+
+def library_presence_to_record(presence: LibraryPresence) -> LibraryPresenceRecord:
+    """Map library presence to a new ORM record.
+
+    :param presence: Library presence to map.
+    :return: New library-presence record.
+    :raises ValueError: If provider provenance has no stable source record ID.
+    """
+    source_record_id = presence.provenance.source_record_id
+    if source_record_id is None:
+        msg = "Library presence requires a source record ID"
+        raise ValueError(msg)
+    return LibraryPresenceRecord(
+        id=str(presence.id.value),
+        profile_id=str(presence.profile_id.value),
+        media_id=str(presence.media_id.value),
+        available=presence.available,
+        play_count=presence.play_count,
+        last_played_at=(
+            _timestamp_to_storage(presence.last_played_at) if presence.last_played_at is not None else None
+        ),
+        source_provider=presence.provenance.provider,
+        source_record_id=source_record_id,
+        synchronization_id=presence.provenance.synchronization_id,
+        imported_at=_timestamp_to_storage(presence.provenance.imported_at),
+    )
+
+
+def update_library_presence_record(record: LibraryPresenceRecord, presence: LibraryPresence) -> None:
+    """Update library presence while preserving its internal identity.
+
+    :param record: Existing library-presence record.
+    :param presence: Latest normalized presence.
+    """
+    record.media_id = str(presence.media_id.value)
+    record.available = presence.available
+    record.play_count = presence.play_count
+    record.last_played_at = (
+        _timestamp_to_storage(presence.last_played_at) if presence.last_played_at is not None else None
+    )
+    record.synchronization_id = presence.provenance.synchronization_id
+    record.imported_at = _timestamp_to_storage(presence.provenance.imported_at)
+
+
+def record_to_library_presence(record: LibraryPresenceRecord) -> LibraryPresence:
+    """Map a library-presence ORM record to the domain.
+
+    :param record: Library-presence persistence record.
+    :return: Provider-independent library presence.
+    """
+    return LibraryPresence(
+        id=LibraryPresenceId(UUID(record.id)),
+        profile_id=ProfileId(UUID(record.profile_id)),
+        media_id=MediaId(UUID(record.media_id)),
+        available=record.available,
+        play_count=record.play_count,
+        last_played_at=datetime.fromisoformat(record.last_played_at) if record.last_played_at is not None else None,
+        provenance=_provenance_from_record(record),
     )
 
 

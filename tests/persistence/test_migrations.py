@@ -12,6 +12,7 @@ EXPECTED_TABLES = {
     "countries",
     "external_ids",
     "genres",
+    "library_presence",
     "media_countries",
     "media_genres",
     "media_items",
@@ -49,7 +50,7 @@ def test_migration_upgrades_an_empty_database_to_current_schema(tmp_path: Path) 
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
 
     assert tables == EXPECTED_TABLES
-    assert revision == ("ca0c3ba9fe91",)
+    assert revision == ("8d7c2f19a4b6",)
     command.check(config)
 
 
@@ -74,4 +75,4 @@ def test_migration_upgrades_phase_one_data_without_duplication(tmp_path: Path) -
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
 
     assert stored_media == [(media_id, "Existing Synthetic Movie")]
-    assert revision == ("ca0c3ba9fe91",)
+    assert revision == ("8d7c2f19a4b6",)

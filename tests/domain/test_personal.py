@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 import pytest
 
 from media_recommender.domain import (
+    LibraryPresence,
+    LibraryPresenceId,
     LikeState,
     MediaId,
     Preference,
@@ -101,4 +103,33 @@ def test_unknown_watch_state_is_represented_by_absence() -> None:
             media_id=MediaId.new(),
             status=WatchStatus.UNKNOWN,
             provenance=SourceProvenance(provider="synthetic", imported_at=datetime(2026, 9, 14, tzinfo=UTC)),
+        )
+
+
+def test_library_presence_keeps_availability_separate_from_playback_metadata() -> None:
+    """Verify library membership can exist without implying that an item was watched."""
+    presence = LibraryPresence(
+        id=LibraryPresenceId.new(),
+        profile_id=ProfileId.new(),
+        media_id=MediaId.new(),
+        available=True,
+        provenance=SourceProvenance(
+            provider="jellyfin",
+            source_record_id="synthetic-item",
+            imported_at=datetime(2026, 9, 14, tzinfo=UTC),
+        ),
+    )
+
+    assert presence.available
+    assert presence.play_count is None
+    assert presence.last_played_at is None
+
+    with pytest.raises(ValueError, match="play count"):
+        LibraryPresence(
+            id=LibraryPresenceId.new(),
+            profile_id=presence.profile_id,
+            media_id=presence.media_id,
+            available=True,
+            play_count=-1,
+            provenance=presence.provenance,
         )

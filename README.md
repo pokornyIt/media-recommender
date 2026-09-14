@@ -81,9 +81,10 @@ events, ratings and reactions, preferences and exclusions, and external provider
 reference the shared catalog rather than duplicating media metadata. Source record and synchronization identities make
 later supported imports repeatable without treating a provider identity as the application user.
 
-The Web, REST, MCP, recommendation, availability, and deployment layers shown above remain planned. Local Netflix
-Viewing Activity and supported ratings CSV imports now flow through the shared identity resolver into profile-owned
-personal state.
+The Web, REST, MCP, recommendation, streaming-availability, and deployment layers shown above remain planned. Local
+Netflix Viewing Activity and supported ratings CSV imports now flow through the shared identity resolver into
+profile-owned personal state. Jellyfin movie and series libraries can be synchronized through its supported API,
+including distinct library presence and per-user watched state.
 
 ## Main project areas
 
@@ -106,10 +107,10 @@ states. A rating does not implicitly mark an item as watched, and missing record
 The initial single-user workflow uses one deterministic implicit default profile. Profile management, switching,
 authentication, and authorization are not implemented.
 
-Initial sources include or are expected to include:
+Initial sources include:
 
 * local Netflix viewing-history CSV and supported ratings/interactions files;
-* Jellyfin library contents and watched state.
+* Jellyfin movie and TV-show library contents, watched state, play count, and last-played metadata.
 
 Additional providers may be added later.
 
@@ -171,8 +172,8 @@ The application can represent movies and TV shows, normalize TMDB metadata, pers
 personal media state in SQLite, and expose those workflows through provider-independent application contracts. The
 automated tests use synthetic data, temporary databases, and mock transports, so normal validation is fully offline.
 
-There is no executable application entry point, end-user interface, recommendation engine, Jellyfin personal-media
-integration, streaming-availability integration, AI behavior, MCP interface, or production deployment yet.
+There is no executable application entry point, end-user interface, recommendation engine, streaming-availability
+integration, AI behavior, MCP interface, or production deployment yet.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part
@@ -230,7 +231,7 @@ export MEDIA_RECOMMENDER_DATABASE_PATH="data/media-recommender.db"
 export MEDIA_RECOMMENDER_TMDB_API_TOKEN="replace-with-tmdb-api-read-access-token"
 ```
 
-Optional TMDB locale, endpoint, image, and timeout settings are documented in
+Optional TMDB and Jellyfin configuration, endpoint, and timeout settings are documented in
 [Provider integration conventions](docs/provider-integrations.md).
 
 ### Local database

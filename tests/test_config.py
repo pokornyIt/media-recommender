@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from media_recommender.config import ProviderHttpSettings, ProviderSettings, Settings, TmdbSettings
+from media_recommender.config import JellyfinSettings, ProviderHttpSettings, ProviderSettings, Settings, TmdbSettings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -76,3 +76,23 @@ def test_tmdb_settings_load_provider_options_from_environment(monkeypatch: pytes
 
     assert settings.api_token.get_secret_value() == "synthetic-environment-token"
     assert settings.language == "cs-CZ"
+
+
+def test_jellyfin_settings_require_and_mask_selected_user_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify Jellyfin server credentials and selected user are validated from runtime configuration."""
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", "https://jellyfin.invalid/api/")
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", "synthetic-jellyfin-token")
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", "synthetic-user")
+
+    settings = JellyfinSettings()  # pyright: ignore[reportCallIssue] - BaseSettings supplies values from env.
+
+    assert settings.user_id == "synthetic-user"
+    assert "synthetic-jellyfin-token" not in repr(settings)
+    with pytest.raises(ValidationError):
+        JellyfinSettings.model_validate(
+            {"base_url": "https://jellyfin.invalid", "api_token": "synthetic-token", "user_id": " "}
+        )
+    with pytest.raises(ValidationError):
+        JellyfinSettings.model_validate(
+            {"base_url": "https://jellyfin.invalid", "api_token": " ", "user_id": "synthetic-user"}
+        )

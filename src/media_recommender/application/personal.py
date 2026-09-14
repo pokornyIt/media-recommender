@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from media_recommender.domain import (
+        LibraryPresence,
         Preference,
         Profile,
         ProfileId,
@@ -72,12 +73,38 @@ class PersonalMediaRepository(Protocol):
         """
         ...
 
+    async def save_library_presence(self, presence: LibraryPresence) -> LibraryPresence:
+        """Persist one provider library-presence record idempotently.
+
+        :param presence: Current library presence and optional playback metadata.
+        :return: Persisted presence preserving its existing internal identity.
+        """
+        ...
+
+    async def list_library_presence(self, profile_id: ProfileId, provider: str) -> tuple[LibraryPresence, ...]:
+        """Return all known library-presence records for one provider mapping.
+
+        :param profile_id: Internal owner identity.
+        :param provider: Provider namespace.
+        :return: Matching presence records ordered by source identity.
+        """
+        ...
+
     async def get_watch_status(self, profile_id: ProfileId, media_id: MediaId) -> WatchStatus:
         """Derive watched, unwatched, or unknown without collapsing absence.
 
         :param profile_id: Owner whose state should be queried.
         :param media_id: Shared catalog identity.
         :return: Derived three-state watch status.
+        """
+        ...
+
+    async def remove_watch_state(self, profile_id: ProfileId, media_id: MediaId, provider: str) -> None:
+        """Remove one provider's explicit state so absence remains unknown.
+
+        :param profile_id: Internal owner identity.
+        :param media_id: Shared catalog identity.
+        :param provider: Provider namespace whose stale state should be removed.
         """
         ...
 

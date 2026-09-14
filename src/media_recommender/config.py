@@ -50,7 +50,7 @@ class ProviderHttpSettings(BaseModel):
 
 
 class ProviderSettings(BaseSettings):
-    """Validated settings shared by authenticated metadata providers."""
+    """Validated settings shared by authenticated external providers."""
 
     model_config = SettingsConfigDict(frozen=True, extra="forbid")
 
@@ -74,3 +74,30 @@ class TmdbSettings(ProviderSettings):
     language: str = Field(default="en-US", pattern=r"^[a-z]{2}-[A-Z]{2}$")
     poster_size: str = Field(default="w500", pattern=r"^(?:w[1-9][0-9]*|original)$")
     backdrop_size: str = Field(default="w1280", pattern=r"^(?:w[1-9][0-9]*|original)$")
+
+
+class JellyfinSettings(ProviderSettings):
+    """Validated Jellyfin server and selected-user settings."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="MEDIA_RECOMMENDER_JELLYFIN_",
+        env_nested_delimiter="__",
+        frozen=True,
+        extra="forbid",
+    )
+
+    user_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_-]+$")
+
+    @field_validator("api_token")
+    @classmethod
+    def api_token_must_not_be_blank(cls, value: SecretStr) -> SecretStr:
+        """Reject credentials containing only whitespace.
+
+        :param value: Secret-wrapped configured API key.
+        :return: Valid non-blank API key.
+        :raises ValueError: If the key contains no non-whitespace characters.
+        """
+        if not value.get_secret_value().strip():
+            msg = "Jellyfin API token must not be blank"
+            raise ValueError(msg)
+        return value

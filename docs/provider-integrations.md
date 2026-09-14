@@ -52,3 +52,31 @@ values such as `w342` or `original`.
 and Wikidata IDs into provider-independent namespaces. Poster and backdrop paths become absolute URLs using the
 configured image base URL and sizes. Missing dates, runtime, countries, genres, external IDs, or artwork remain absent
 instead of being inferred.
+
+## Jellyfin
+
+Jellyfin is a personal-library source rather than the catalog metadata provider. `JellyfinClient` validates the
+configured user through the supported user endpoint and enumerates only that user's accessible movies and series.
+`JellyfinLibrarySynchronizer` normalizes the response and delegates identity resolution and persistence to the shared
+`LibrarySynchronizationService`.
+
+Configure the server, API key, and selected Jellyfin user only at runtime:
+
+```bash
+export MEDIA_RECOMMENDER_JELLYFIN_BASE_URL="https://jellyfin.example.invalid/"
+export MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN="replace-with-jellyfin-api-key"
+export MEDIA_RECOMMENDER_JELLYFIN_USER_ID="replace-with-jellyfin-user-id"
+```
+
+The API key is sent only in the `X-Emby-Token` header. It is masked by validated settings and never included in normal
+provider errors. The selected Jellyfin identity is stored as a mapping to the internal profile; it never becomes the
+application's canonical user identity.
+
+Each complete successful response updates library presence, explicit watched/unwatched state, play count, last-played
+time, and synchronization provenance. Missing `UserData` means unknown watch state rather than unwatched. Items no
+longer returned by a successful complete synchronization remain recorded but become unavailable. Retrieval failures
+happen before the application service runs, so they do not remove or rewrite previously valid local state.
+
+Jellyfin item IDs are retained alongside recognized IMDb, TMDB, and TVDB IDs. The shared identity resolver tries these
+exact IDs first and then uses its deterministic metadata fallback. Unresolved, ambiguous, and individually malformed
+items are reported in the synchronization result and are not silently attached to catalog entries.
