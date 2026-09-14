@@ -269,6 +269,18 @@ persistence error rolls back the complete write. Provider failures and persisten
 interface layer to translate, while missing providers, missing details, and mismatched provider results use explicit
 application-service errors. External-ID conflicts are never resolved through title/year heuristics.
 
+### Media identity resolution
+
+`MediaIdentityResolver` attaches normalized provider facts to shared catalog items without provider-specific DTOs or
+an AI service. It prefers exact and authoritative cross-provider identifiers, then considers normalized title variants
+only when release year or runtime independently corroborates the match. Media type is always enforced. Conflicting
+identifiers and multiple viable candidates produce explicit ambiguous results; title-only or absent matches remain
+unresolved.
+
+Successful matches preserve non-conflicting source identifiers in the shared catalog, so later synchronization can use
+the exact deterministic path. An optional provider-independent enrichment boundary can add normalized evidence for
+sparse source records without coupling the matching algorithm to a metadata transport implementation.
+
 ### Metadata provider development
 
 External metadata integrations use a shared provider contract and asynchronous HTTP infrastructure. See
