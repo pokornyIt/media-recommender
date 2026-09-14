@@ -47,3 +47,25 @@ invent facts.
 
 `SqlAlchemyRecommendationDataSource` loads media and related profile/shared facts in a constant number of queries. It
 does not issue one query per catalog item, which keeps the SQLite workflow suitable for expected self-hosted catalogs.
+
+## Ranking and explanations
+
+`RecommendationService` evaluates filtering and ranking against one immutable candidate snapshot. Rejected candidates
+remain available through the filter decisions, but only accepted candidates reach ranking, so preferences cannot
+weaken a hard constraint.
+
+The default score uses explicit profile information only:
+
+* each matching persisted `PREFER` criterion contributes 100 points;
+* each point of the highest known personal rating contributes 5 points;
+* an explicit like contributes 30 points;
+* an explicit dislike subtracts 30 points.
+
+`RankingWeights` can replace these non-negative integer magnitudes. Equal scores are ordered by case-insensitive title
+and then stable media identity. With no scoring signals, this tie-break is the complete default ranking behavior.
+
+Every ranked result contains the score, ordinal rank, individual signed score contributions, matched configured hard
+constraints, known local and streaming availability, profile-specific watch state, personal rating/reactions, and
+typed warnings for unknown runtime, release date, watch state, rating, or availability. These facts are derived from
+normalized application data and are not AI-generated prose. Missing genres and production countries are also reported
+explicitly.

@@ -123,7 +123,9 @@ profile-specific watch state, ratings/reactions, persisted exclusions, Jellyfin 
 availability. Results preserve structured exclusion reasons and do not require AI. Detailed semantics are documented
 in [Deterministic recommendation filtering](docs/recommendation-filtering.md).
 
-Scoring, weighted ranking, and AI integration are not implemented yet.
+Accepted candidates can be ranked with documented integer weights using explicit profile preferences, ratings, and
+like/dislike state. Results include structured factual matches, score contributions, availability, personal state,
+and missing-data warnings. AI integration is not implemented yet.
 
 AI support is optional and should primarily provide:
 

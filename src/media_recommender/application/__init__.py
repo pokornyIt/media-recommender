@@ -44,6 +44,19 @@ from media_recommender.application.library import (
 )
 from media_recommender.application.personal import PersonalMediaRepository, ProfileRepository
 from media_recommender.application.providers import MediaSearchResult, MetadataProvider
+from media_recommender.application.ranking import (
+    ConstraintMatch,
+    ConstraintMatchKind,
+    KnownAvailability,
+    RankedRecommendation,
+    RankingReason,
+    RankingReasonKind,
+    RankingWeights,
+    RecommendationResult,
+    RecommendationService,
+    RecommendationWarning,
+    RecommendationWarningKind,
+)
 from media_recommender.application.recommendations import (
     AvailabilityCriterion,
     AvailabilitySourceKind,
@@ -57,6 +70,10 @@ from media_recommender.application.recommendations import (
     RecommendationFilterResult,
     RecommendationFilterService,
     WatchRequirement,
+    apply_recommendation_filters,
+    availability_matches,
+    preference_matches,
+    preference_measure,
 )
 from media_recommender.application.regions import ProductionRegion, production_region
 from media_recommender.application.services import CatalogService
@@ -72,6 +89,8 @@ __all__ = [
     "AvailabilitySourceKind",
     "CatalogService",
     "CatalogServiceError",
+    "ConstraintMatch",
+    "ConstraintMatchKind",
     "FilterExclusion",
     "FilterReason",
     "GenreMatch",
@@ -81,6 +100,7 @@ __all__ = [
     "InvalidImportRecord",
     "InvalidLibraryItem",
     "InvalidProviderResultError",
+    "KnownAvailability",
     "LibraryItemResult",
     "LibraryItemSnapshot",
     "LibraryItemStatus",
@@ -106,13 +126,25 @@ __all__ = [
     "PersonalMediaRepository",
     "ProductionRegion",
     "ProfileRepository",
+    "RankedRecommendation",
+    "RankingReason",
+    "RankingReasonKind",
+    "RankingWeights",
     "RecommendationCandidate",
     "RecommendationCriteria",
     "RecommendationDataSource",
     "RecommendationDecision",
     "RecommendationFilterResult",
     "RecommendationFilterService",
+    "RecommendationResult",
+    "RecommendationService",
+    "RecommendationWarning",
+    "RecommendationWarningKind",
     "WatchRequirement",
+    "apply_recommendation_filters",
+    "availability_matches",
     "normalize_title",
+    "preference_matches",
+    "preference_measure",
     "production_region",
 ]

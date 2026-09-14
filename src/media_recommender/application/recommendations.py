@@ -277,14 +277,32 @@ class RecommendationFilterService:
         preferences = (
             tuple(await self._data_source.list_preferences(profile_id)) if criteria.apply_profile_exclusions else ()
         )
-        decisions = tuple(
-            RecommendationDecision(candidate.media, _exclusions(candidate, criteria, preferences))
-            for candidate in sorted(candidates, key=_candidate_sort_key)
-        )
-        return RecommendationFilterResult(
-            accepted=tuple(decision.media for decision in decisions if decision.accepted),
-            decisions=decisions,
-        )
+        return apply_recommendation_filters(candidates, criteria, preferences)
+
+
+def apply_recommendation_filters(
+    candidates: Sequence[RecommendationCandidate],
+    criteria: RecommendationCriteria,
+    preferences: Sequence[Preference] = (),
+) -> RecommendationFilterResult:
+    """Apply hard constraints to already loaded candidate snapshots.
+
+    This entry point lets filtering and ranking share one provider-independent
+    snapshot without loading mutable persistence state twice.
+
+    :param candidates: Normalized candidate snapshots.
+    :param criteria: Typed hard constraints.
+    :param preferences: Persisted profile preferences and exclusions.
+    :return: Accepted media and structured decisions for every candidate.
+    """
+    decisions = tuple(
+        RecommendationDecision(candidate.media, _exclusions(candidate, criteria, preferences))
+        for candidate in sorted(candidates, key=_candidate_sort_key)
+    )
+    return RecommendationFilterResult(
+        accepted=tuple(decision.media for decision in decisions if decision.accepted),
+        decisions=decisions,
+    )
 
 
 def _exclusions(
@@ -506,12 +524,12 @@ def _filter_availability(
     :param exclusions: Mutable exclusion accumulator.
     """
     if criteria.availability_any_of and not any(
-        _availability_matches(candidate, requirement) for requirement in criteria.availability_any_of
+        availability_matches(candidate, requirement) for requirement in criteria.availability_any_of
     ):
         exclusions.append(FilterExclusion(FilterReason.AVAILABILITY_NOT_FOUND))
 
 
-def _availability_matches(candidate: RecommendationCandidate, criterion: AvailabilityCriterion) -> bool:
+def availability_matches(candidate: RecommendationCandidate, criterion: AvailabilityCriterion) -> bool:
     """Return whether one normalized availability alternative is satisfied.
 
     :param candidate: Candidate being evaluated.
@@ -550,11 +568,11 @@ def _filter_preferences(
             (preference.kind.value, str(preference.id.value)),
         )
         for preference in sorted(preferences, key=lambda item: str(item.id.value))
-        if preference.effect is PreferenceEffect.EXCLUDE and _preference_matches(candidate, preference)
+        if preference.effect is PreferenceEffect.EXCLUDE and preference_matches(candidate, preference)
     )
 
 
-def _preference_matches(  # noqa: PLR0911 - each typed preference kind has distinct matching semantics.
+def preference_matches(  # noqa: PLR0911 - each typed preference kind has distinct matching semantics.
     candidate: RecommendationCandidate,
     preference: Preference,
 ) -> bool:
@@ -592,11 +610,11 @@ def _preference_matches(  # noqa: PLR0911 - each typed preference kind has disti
             for availability in candidate.streaming_availability
         )
 
-    measured = _preference_measure(candidate, preference.kind)
+    measured = preference_measure(candidate, preference.kind)
     return measured is not None and _within_int(measured, preference.minimum, preference.maximum)
 
 
-def _preference_measure(candidate: RecommendationCandidate, kind: PreferenceKind) -> int | None:
+def preference_measure(candidate: RecommendationCandidate, kind: PreferenceKind) -> int | None:
     """Return the candidate value addressed by a numeric preference kind.
 
     :param candidate: Candidate being evaluated.
@@ -605,6 +623,8 @@ def _preference_measure(candidate: RecommendationCandidate, kind: PreferenceKind
     """
     if kind is PreferenceKind.RELEASE_YEAR:
         return candidate.media.release_year
+    if kind is not PreferenceKind.RUNTIME_MINUTES:
+        return None
     runtime = candidate.media.runtime if isinstance(candidate.media, Movie) else candidate.media.episode_runtime
     return runtime.minutes if runtime is not None else None
 
