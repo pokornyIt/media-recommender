@@ -125,6 +125,7 @@ async def _exercise_personal_repository(database_path: Path) -> None:
         media_id=movie.id,
         value=8.5,
         like_state=LikeState.LIKED,
+        rated_at=datetime(2026, 9, 13, 19, tzinfo=UTC),
         provenance=_source("rating-1"),
     )
     await repository.save_rating(rating)

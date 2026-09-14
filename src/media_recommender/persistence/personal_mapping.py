@@ -178,6 +178,7 @@ def rating_to_record(rating: Rating) -> RatingRecord:
         media_id=str(rating.media_id.value),
         value=rating.value,
         like_state=rating.like_state.value if rating.like_state is not None else None,
+        rated_at=_timestamp_to_storage(rating.rated_at) if rating.rated_at is not None else None,
         source_provider=rating.provenance.provider,
         source_record_id=rating.provenance.source_record_id,
         synchronization_id=rating.provenance.synchronization_id,
@@ -194,6 +195,7 @@ def update_rating_record(record: RatingRecord, rating: Rating) -> None:
     record.media_id = str(rating.media_id.value)
     record.value = rating.value
     record.like_state = rating.like_state.value if rating.like_state is not None else None
+    record.rated_at = _timestamp_to_storage(rating.rated_at) if rating.rated_at is not None else None
     record.synchronization_id = rating.provenance.synchronization_id
     record.imported_at = _timestamp_to_storage(rating.provenance.imported_at)
 
@@ -210,6 +212,7 @@ def record_to_rating(record: RatingRecord) -> Rating:
         media_id=MediaId(UUID(record.media_id)),
         value=record.value,
         like_state=LikeState(record.like_state) if record.like_state is not None else None,
+        rated_at=datetime.fromisoformat(record.rated_at) if record.rated_at is not None else None,
         provenance=_provenance_from_record(record),
     )
 
