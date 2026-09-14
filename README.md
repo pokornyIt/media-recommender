@@ -68,7 +68,7 @@ provide external data through explicit boundaries.
 
 Provider-specific behavior should therefore stay outside the central recommendation logic whenever possible.
 
-### Current Phase 1 implementation
+### Current implementation
 
 Phase 1 implements the metadata and catalog slice of this architecture. Provider-independent domain models represent
 movies and TV shows, `CatalogService` orchestrates the `MetadataProvider` and `MediaCatalog` boundaries, TMDB supplies
@@ -76,8 +76,12 @@ normalized metadata, and SQLite stores the shared catalog behind SQLAlchemy repo
 migrations. The application service preserves internal identities while synchronizing external metadata and is ready
 for later interfaces to consume without exposing TMDB DTOs or ORM records.
 
-The Web, REST, MCP, recommendation, personal-data, availability, and deployment layers shown above remain planned;
-they are not part of the Phase 1 implementation.
+The Phase 2 personal-data foundation adds an explicit internal profile owner, an implicit default profile, viewing
+events, ratings and reactions, preferences and exclusions, and external provider-profile mappings. Personal records
+reference the shared catalog rather than duplicating media metadata. Source record and synchronization identities make
+later supported imports repeatable without treating a provider identity as the application user.
+
+The Web, REST, MCP, recommendation, provider-import, availability, and deployment layers shown above remain planned.
 
 ## Main project areas
 
@@ -92,7 +96,13 @@ countries, runtime, artwork, release information, and external identifiers. Stre
 
 ### Personal Media Data
 
-Planned after Phase 1. No user-specific media information is currently imported or stored.
+The provider-independent domain and SQLite persistence layers can store profile-owned viewing history, ratings,
+explicit like/dislike state, preferences, exclusions, and provider-profile mappings. Viewing history is event-based,
+so repeated watches remain distinct. Watch status preserves `watched`, explicit `unwatched`, and `unknown` as separate
+states. A rating does not implicitly mark an item as watched, and missing records continue to represent unknown state.
+
+The initial single-user workflow uses one deterministic implicit default profile. Profile management, switching,
+authentication, and authorization are not implemented.
 
 Initial sources are expected to include:
 
@@ -155,12 +165,12 @@ The application should prefer local storage for personal data wherever practical
 
 ## Project status
 
-The Phase 1 foundation can represent movies and TV shows, normalize TMDB metadata, persist a shared catalog in SQLite,
-and expose those workflows through provider-independent application services. The automated tests use synthetic data
-and mock transports, so normal validation is fully offline.
+The application can represent movies and TV shows, normalize TMDB metadata, persist a shared catalog and profile-owned
+personal media state in SQLite, and expose those workflows through provider-independent application contracts. The
+automated tests use synthetic data, temporary databases, and mock transports, so normal validation is fully offline.
 
-There is no executable application entry point, end-user interface, recommendation engine, personal-media import,
-streaming-availability integration, AI behavior, MCP interface, or production deployment configuration yet.
+There is no executable application entry point, end-user interface, recommendation engine, provider-specific
+personal-media import, streaming-availability integration, AI behavior, MCP interface, or production deployment yet.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part
