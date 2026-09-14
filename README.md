@@ -34,7 +34,8 @@ Media Recommender combines several kinds of information:
 
 ## Architecture
 
-The application is built around a shared recommendation and domain layer.
+The target architecture keeps every interface on the same application and recommendation core while integrations
+provide external data through explicit boundaries.
 
 ```text
                     Media Recommender
@@ -67,23 +68,31 @@ The application is built around a shared recommendation and domain layer.
 
 Provider-specific behavior should therefore stay outside the central recommendation logic whenever possible.
 
+### Current Phase 1 implementation
+
+Phase 1 implements the metadata and catalog slice of this architecture. Provider-independent domain models represent
+movies and TV shows, `CatalogService` orchestrates the `MetadataProvider` and `MediaCatalog` boundaries, TMDB supplies
+normalized metadata, and SQLite stores the shared catalog behind SQLAlchemy repositories and explicit Alembic
+migrations. The application service preserves internal identities while synchronizing external metadata and is ready
+for later interfaces to consume without exposing TMDB DTOs or ORM records.
+
+The Web, REST, MCP, recommendation, personal-data, availability, and deployment layers shown above remain planned;
+they are not part of the Phase 1 implementation.
+
 ## Main project areas
 
 ### Application Core
 
-Defines the domain model, persistence, configuration, application services, and the foundation of
-the recommendation engine.
+Defines typed movie and TV-show domain models, configuration, persistence contracts, and catalog application services.
 
 ### Media Sources and Metadata
 
-Provides metadata about movies and TV shows, including genres, production countries, runtime, artwork,
-external identifiers, and streaming availability.
-
-TMDB is expected to be the initial metadata provider.
+TMDB currently provides normalized movie and TV-show search and detail metadata, including genres, production
+countries, runtime, artwork, release information, and external identifiers. Streaming availability is not implemented.
 
 ### Personal Media Data
 
-Imports and synchronizes user-specific media information.
+Planned after Phase 1. No user-specific media information is currently imported or stored.
 
 Initial sources are expected to include:
 
@@ -94,7 +103,7 @@ Additional providers may be added later.
 
 ### Recommendations and AI
 
-Provides deterministic filters, preferences, exclusions, scoring, and ranking.
+Planned after Phase 1. No recommendation filters, scoring, ranking, or AI integration currently exists.
 
 AI support is optional and should primarily provide:
 
@@ -106,17 +115,18 @@ Structured filtering and recommendation logic should not depend on an AI provide
 
 ### Web Application
 
-Provides the primary self-hosted user interface for browsing, filtering, configuring, and requesting recommendations.
+Planned after Phase 1. The repository does not currently expose a Web UI or public REST API.
 
 ### MCP Integration
 
-Exposes selected application capabilities as MCP tools for clients such as Codex and, where supported, ChatGPT.
+Planned after Phase 1. The repository does not currently expose MCP tools.
 
 MCP is an interface to the application rather than the application core itself.
 
 ### Deployment and Operations
 
-Provides a practical self-hosted deployment model including:
+Planned after Phase 1. Docker images, Docker Compose, health checks, and release packaging are not implemented yet.
+The intended deployment scope includes:
 
 * Docker images;
 * Docker Compose;
@@ -145,9 +155,13 @@ The application should prefer local storage for personal data wherever practical
 
 ## Project status
 
-Media Recommender is currently in the early design and bootstrap stage.
+The Phase 1 foundation can represent movies and TV shows, normalize TMDB metadata, persist a shared catalog in SQLite,
+and expose those workflows through provider-independent application services. The automated tests use synthetic data
+and mock transports, so normal validation is fully offline.
 
-Architecture, integrations, and implementation details may change significantly before the first stable release.
+There is no executable application entry point, end-user interface, recommendation engine, personal-media import,
+streaming-availability integration, AI behavior, MCP interface, or production deployment configuration yet.
+Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part
 of the initial v0.1.0 scope.
@@ -182,6 +196,30 @@ uv run pre-commit run --all-files
 
 Application code uses the `src/media_recommender` package layout. Runtime dependencies are kept separate from the
 development tools declared in the `dev` dependency group.
+
+The Phase 1 stack uses Python 3.14, uv, Pydantic and pydantic-settings, HTTPX, SQLAlchemy 2.x with aiosqlite, Alembic,
+pytest, Ruff, Pyright, pydoclint, and pre-commit. FastAPI is reserved for a future public API and is not imported by the
+current application core.
+
+### Continuous integration
+
+GitHub Actions runs `uv sync --all-groups --frozen` followed by the same `pre-commit --all-files` quality gate used
+locally for every pull request and push to `main`. The workflow uses Python 3.14 and the committed `uv.lock`; it does
+not receive provider credentials and does not upload databases, environment files, provider payloads, or other runtime
+artifacts.
+
+### Runtime configuration
+
+The SQLite catalog location and live TMDB access are configured only at runtime. These placeholders demonstrate the
+minimum settings; the TMDB token is unnecessary for tests and CI because provider calls are mocked.
+
+```bash
+export MEDIA_RECOMMENDER_DATABASE_PATH="data/media-recommender.db"
+export MEDIA_RECOMMENDER_TMDB_API_TOKEN="replace-with-tmdb-api-read-access-token"
+```
+
+Optional TMDB locale, endpoint, image, and timeout settings are documented in
+[Provider integration conventions](docs/provider-integrations.md).
 
 ### Local database
 
