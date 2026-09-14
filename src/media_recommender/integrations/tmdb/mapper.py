@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from media_recommender.application import MediaSearchResult
+from media_recommender.application import AvailabilityOffer, MediaSearchResult
 from media_recommender.domain import (
     Artwork,
     ArtworkType,
+    AvailabilityType,
     Country,
     ExternalId,
     Genre,
@@ -15,6 +16,7 @@ from media_recommender.domain import (
     MediaType,
     Movie,
     Runtime,
+    StreamingService,
     TVShow,
 )
 
@@ -29,6 +31,7 @@ if TYPE_CHECKING:
         TmdbProductionCountry,
         TmdbTvDetails,
         TmdbTvSearchItem,
+        TmdbWatchProviderResponse,
     )
 
 
@@ -98,6 +101,38 @@ def map_tv_details(item: TmdbTvDetails, settings: TmdbSettings) -> TVShow:
         artwork=_artwork(item.poster_path, item.backdrop_path, settings),
         external_ids=_external_ids(item.id, item.external_ids),
     )
+
+
+def map_watch_provider_offers(
+    response: TmdbWatchProviderResponse,
+    region: str,
+) -> tuple[AvailabilityOffer, ...]:
+    """Map one TMDB region to deterministic provider-independent offers.
+
+    :param response: Validated TMDB watch-provider response.
+    :param region: Normalized region selected by the caller.
+    :return: Available service and access-type combinations.
+    """
+    regional = response.results.get(region)
+    if regional is None:
+        return ()
+
+    categories = (
+        (AvailabilityType.SUBSCRIPTION, regional.flatrate),
+        (AvailabilityType.RENT, regional.rent),
+        (AvailabilityType.BUY, regional.buy),
+        (AvailabilityType.FREE, regional.free),
+        (AvailabilityType.ADS, regional.ads),
+    )
+    offers = {
+        (str(provider.provider_id), availability_type): AvailabilityOffer(
+            service=StreamingService(str(provider.provider_id), provider.provider_name),
+            availability_type=availability_type,
+        )
+        for availability_type, providers in categories
+        for provider in providers
+    }
+    return tuple(offers[key] for key in sorted(offers, key=lambda item: (item[1].value, item[0])))
 
 
 def _optional_text(value: str | None) -> str | None:

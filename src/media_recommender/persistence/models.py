@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models for shared catalog and profile-owned personal data."""
+"""SQLAlchemy ORM models for shared catalog, availability, and personal data."""
 
 from __future__ import annotations
 
@@ -34,6 +34,10 @@ ARTWORK_URL_LENGTH: Final = 2_048
 LANGUAGE_LENGTH: Final = 35
 PROFILE_NAME_LENGTH: Final = 200
 PROVIDER_LENGTH: Final = 100
+SERVICE_ID_LENGTH: Final = 255
+SERVICE_NAME_LENGTH: Final = 200
+ATTRIBUTION_LENGTH: Final = 200
+AVAILABILITY_TYPE_LENGTH: Final = 20
 SOURCE_RECORD_ID_LENGTH: Final = 500
 SYNCHRONIZATION_ID_LENGTH: Final = 255
 TIMESTAMP_LENGTH: Final = 40
@@ -158,6 +162,41 @@ class ExternalIdRecord(Base):
     value: Mapped[str] = mapped_column(String(EXTERNAL_ID_LENGTH), nullable=False)
 
     media: Mapped[MediaRecord] = relationship(back_populates="external_ids")
+
+
+class StreamingAvailabilityRecord(Base):
+    """ORM representation of current regional streaming availability."""
+
+    __tablename__ = "streaming_availability"
+    __table_args__ = (
+        CheckConstraint(
+            "availability_type IN ('subscription', 'rent', 'buy', 'free', 'ads')",
+            name="ck_streaming_availability_type",
+        ),
+        UniqueConstraint(
+            "media_id",
+            "region",
+            "source_provider",
+            "source_service_id",
+            "availability_type",
+            name="uq_streaming_availability_fact",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    media_id: Mapped[str] = mapped_column(
+        String(MEDIA_ID_LENGTH),
+        ForeignKey("media_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    region: Mapped[str] = mapped_column(String(COUNTRY_CODE_LENGTH), nullable=False, index=True)
+    source_provider: Mapped[str] = mapped_column(String(PROVIDER_LENGTH), nullable=False)
+    source_service_id: Mapped[str] = mapped_column(String(SERVICE_ID_LENGTH), nullable=False)
+    service_name: Mapped[str] = mapped_column(String(SERVICE_NAME_LENGTH), nullable=False)
+    availability_type: Mapped[str] = mapped_column(String(AVAILABILITY_TYPE_LENGTH), nullable=False)
+    observed_at: Mapped[str] = mapped_column(String(TIMESTAMP_LENGTH), nullable=False)
+    attribution: Mapped[str | None] = mapped_column(String(ATTRIBUTION_LENGTH))
 
 
 class ProfileRecord(Base):

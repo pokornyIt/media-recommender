@@ -1,5 +1,11 @@
-"""Provider-independent domain models for the shared media catalog."""
+"""Provider-independent domain models for catalog, availability, and personal data."""
 
+from media_recommender.domain.availability import (
+    AvailabilityProvenance,
+    AvailabilityType,
+    StreamingAvailability,
+    StreamingService,
+)
 from media_recommender.domain.media import (
     Artwork,
     ArtworkType,
@@ -39,6 +45,8 @@ from media_recommender.domain.personal import (
 __all__ = [
     "Artwork",
     "ArtworkType",
+    "AvailabilityProvenance",
+    "AvailabilityType",
     "Country",
     "ExternalId",
     "Genre",
@@ -61,6 +69,8 @@ __all__ = [
     "RatingId",
     "Runtime",
     "SourceProvenance",
+    "StreamingAvailability",
+    "StreamingService",
     "TVShow",
     "ViewingEvent",
     "ViewingEventId",

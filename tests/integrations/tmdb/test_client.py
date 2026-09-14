@@ -9,8 +9,9 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from media_recommender.application import AvailabilityOffer
 from media_recommender.config import TmdbSettings
-from media_recommender.domain import ExternalId, MediaType, Movie, TVShow
+from media_recommender.domain import AvailabilityType, ExternalId, MediaType, Movie, StreamingService, TVShow
 from media_recommender.integrations import (
     ProviderAuthenticationError,
     ProviderInvalidPayloadError,
@@ -20,7 +21,7 @@ from media_recommender.integrations import (
 from media_recommender.integrations.tmdb import TmdbMetadataProvider
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from media_recommender.application import MediaSearchResult
     from media_recommender.domain import Media
@@ -154,6 +155,60 @@ def test_not_found_details_return_none() -> None:
     )
 
     assert result is None
+
+
+@pytest.mark.parametrize(
+    ("media_type", "expected_path"),
+    [(MediaType.MOVIE, "/3/movie/42/watch/providers"), (MediaType.TV_SHOW, "/3/tv/42/watch/providers")],
+)
+def test_availability_maps_multiple_services_types_and_selected_region(
+    media_type: MediaType,
+    expected_path: str,
+) -> None:
+    """Verify TMDB watch providers become normalized region-specific offers."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Return synthetic multi-region availability."""
+        assert request.url.path == expected_path
+        assert "language" not in request.url.params
+        return httpx.Response(
+            200,
+            json={
+                "id": 42,
+                "results": {
+                    "CZ": {
+                        "flatrate": [
+                            {"provider_id": 8, "provider_name": "Netflix"},
+                            {"provider_id": 1899, "provider_name": "Max"},
+                        ],
+                        "rent": [{"provider_id": 8, "provider_name": "Netflix"}],
+                    },
+                    "SK": {"flatrate": [{"provider_id": 337, "provider_name": "Disney Plus"}]},
+                },
+            },
+        )
+
+    async def get_availability(provider: TmdbMetadataProvider) -> Sequence[AvailabilityOffer]:
+        """Retrieve the synthetic Czech offer snapshot."""
+        return await provider.get_availability(ExternalId("tmdb", "42"), media_type, "cz")
+
+    offers = _run_with_provider(handler, get_availability)
+
+    assert set(offers) == {
+        AvailabilityOffer(StreamingService("8", "Netflix"), AvailabilityType.SUBSCRIPTION),
+        AvailabilityOffer(StreamingService("1899", "Max"), AvailabilityType.SUBSCRIPTION),
+        AvailabilityOffer(StreamingService("8", "Netflix"), AvailabilityType.RENT),
+    }
+
+
+def test_availability_treats_missing_or_partial_region_as_empty_snapshot() -> None:
+    """Verify absent availability categories and regions are not inferred."""
+    offers = _run_with_provider(
+        lambda _request: httpx.Response(200, json={"id": 42, "results": {"CZ": {}}}),
+        lambda provider: provider.get_availability(ExternalId("tmdb", "42"), MediaType.MOVIE, "SK"),
+    )
+
+    assert offers == ()
 
 
 @pytest.mark.parametrize(
