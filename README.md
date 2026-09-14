@@ -81,11 +81,12 @@ events, ratings and reactions, preferences and exclusions, and external provider
 reference the shared catalog rather than duplicating media metadata. Source record and synchronization identities make
 later supported imports repeatable without treating a provider identity as the application user.
 
-The Web, REST, MCP, recommendation, and deployment layers shown above remain planned. Local
+The Web, REST, ranking, MCP, and deployment layers shown above remain planned. Local
 Netflix Viewing Activity and supported ratings CSV imports now flow through the shared identity resolver into
 profile-owned personal state. Jellyfin movie and series libraries can be synchronized through its supported API,
 including distinct library presence and per-user watched state. Regional streaming availability can be refreshed from
-TMDB watch-provider data and is stored separately from both personal state and local-library presence.
+TMDB watch-provider data and is stored separately from both personal state and local-library presence. Typed hard
+constraints now combine those normalized facts into deterministic profile-specific recommendation candidate sets.
 
 ## Main project areas
 
@@ -117,7 +118,12 @@ Additional providers may be added later.
 
 ### Recommendations and AI
 
-Planned after Phase 1. No recommendation filters, scoring, ranking, or AI integration currently exists.
+Deterministic filtering supports media type, genres, production countries and broad regions, runtime, release ranges,
+profile-specific watch state, ratings/reactions, persisted exclusions, Jellyfin presence, and region-aware streaming
+availability. Results preserve structured exclusion reasons and do not require AI. Detailed semantics are documented
+in [Deterministic recommendation filtering](docs/recommendation-filtering.md).
+
+Scoring, weighted ranking, and AI integration are not implemented yet.
 
 AI support is optional and should primarily provide:
 

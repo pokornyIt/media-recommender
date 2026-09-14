@@ -44,17 +44,37 @@ from media_recommender.application.library import (
 )
 from media_recommender.application.personal import PersonalMediaRepository, ProfileRepository
 from media_recommender.application.providers import MediaSearchResult, MetadataProvider
+from media_recommender.application.recommendations import (
+    AvailabilityCriterion,
+    AvailabilitySourceKind,
+    FilterExclusion,
+    FilterReason,
+    GenreMatch,
+    RecommendationCandidate,
+    RecommendationCriteria,
+    RecommendationDataSource,
+    RecommendationDecision,
+    RecommendationFilterResult,
+    RecommendationFilterService,
+    WatchRequirement,
+)
+from media_recommender.application.regions import ProductionRegion, production_region
 from media_recommender.application.services import CatalogService
 
 __all__ = [
+    "AvailabilityCriterion",
     "AvailabilityOffer",
     "AvailabilityProvider",
     "AvailabilityRefreshResult",
     "AvailabilityRefreshService",
     "AvailabilityRefreshStatus",
     "AvailabilityRepository",
+    "AvailabilitySourceKind",
     "CatalogService",
     "CatalogServiceError",
+    "FilterExclusion",
+    "FilterReason",
+    "GenreMatch",
     "IdentityResolver",
     "ImportRecordResult",
     "ImportRecordStatus",
@@ -84,6 +104,15 @@ __all__ = [
     "PersonalImportResult",
     "PersonalMediaImportService",
     "PersonalMediaRepository",
+    "ProductionRegion",
     "ProfileRepository",
+    "RecommendationCandidate",
+    "RecommendationCriteria",
+    "RecommendationDataSource",
+    "RecommendationDecision",
+    "RecommendationFilterResult",
+    "RecommendationFilterService",
+    "WatchRequirement",
     "normalize_title",
+    "production_region",
 ]
