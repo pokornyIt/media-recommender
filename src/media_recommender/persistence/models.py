@@ -248,6 +248,7 @@ class RatingRecord(Base):
     )
     value: Mapped[float | None] = mapped_column(Float)
     like_state: Mapped[str | None] = mapped_column(String(10))
+    rated_at: Mapped[str | None] = mapped_column(String(TIMESTAMP_LENGTH))
     source_provider: Mapped[str] = mapped_column(String(PROVIDER_LENGTH), nullable=False)
     source_record_id: Mapped[str | None] = mapped_column(String(SOURCE_RECORD_ID_LENGTH))
     synchronization_id: Mapped[str | None] = mapped_column(String(SYNCHRONIZATION_ID_LENGTH))

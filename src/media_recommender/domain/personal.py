@@ -207,6 +207,7 @@ class Rating:
     provenance: SourceProvenance
     value: float | None = None
     like_state: LikeState | None = None
+    rated_at: datetime | None = None
 
     def __post_init__(self) -> None:
         """Validate that the rating carries a supported explicit value.
@@ -219,6 +220,8 @@ class Rating:
         if self.value is not None and not 0 <= self.value <= MAX_RATING:
             msg = "Numeric rating must be between 0 and 10"
             raise ValueError(msg)
+        if self.rated_at is not None:
+            _require_aware(self.rated_at, "Rated timestamp")
 
 
 class PreferenceKind(StrEnum):

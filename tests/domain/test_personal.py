@@ -35,12 +35,14 @@ def test_personal_models_normalize_provider_data_and_keep_unknown_state_explicit
         media_id=MediaId.new(),
         provenance=provenance,
         like_state=LikeState.LIKED,
+        rated_at=datetime(2026, 9, 13, 20, tzinfo=UTC),
     )
 
     assert provenance.provider == "synthetic provider"
     assert provenance.source_record_id == "rating-1"
     assert rating.value is None
     assert rating.like_state is LikeState.LIKED
+    assert rating.rated_at == datetime(2026, 9, 13, 20, tzinfo=UTC)
 
 
 def test_preference_supports_text_exclusions_and_numeric_ranges() -> None:

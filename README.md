@@ -81,7 +81,9 @@ events, ratings and reactions, preferences and exclusions, and external provider
 reference the shared catalog rather than duplicating media metadata. Source record and synchronization identities make
 later supported imports repeatable without treating a provider identity as the application user.
 
-The Web, REST, MCP, recommendation, provider-import, availability, and deployment layers shown above remain planned.
+The Web, REST, MCP, recommendation, availability, and deployment layers shown above remain planned. Local Netflix
+Viewing Activity and supported ratings CSV imports now flow through the shared identity resolver into profile-owned
+personal state.
 
 ## Main project areas
 
@@ -104,9 +106,9 @@ states. A rating does not implicitly mark an item as watched, and missing record
 The initial single-user workflow uses one deterministic implicit default profile. Profile management, switching,
 authentication, and authorization are not implemented.
 
-Initial sources are expected to include:
+Initial sources include or are expected to include:
 
-* Netflix viewing history and ratings where available;
+* local Netflix viewing-history CSV and supported ratings/interactions files;
 * Jellyfin library contents and watched state.
 
 Additional providers may be added later.
@@ -169,8 +171,8 @@ The application can represent movies and TV shows, normalize TMDB metadata, pers
 personal media state in SQLite, and expose those workflows through provider-independent application contracts. The
 automated tests use synthetic data, temporary databases, and mock transports, so normal validation is fully offline.
 
-There is no executable application entry point, end-user interface, recommendation engine, provider-specific
-personal-media import, streaming-availability integration, AI behavior, MCP interface, or production deployment yet.
+There is no executable application entry point, end-user interface, recommendation engine, Jellyfin personal-media
+integration, streaming-availability integration, AI behavior, MCP interface, or production deployment yet.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part
@@ -280,6 +282,17 @@ unresolved.
 Successful matches preserve non-conflicting source identifiers in the shared catalog, so later synchronization can use
 the exact deterministic path. An optional provider-independent enrichment boundary can add normalized evidence for
 sparse source records without coupling the matching algorithm to a metadata transport implementation.
+
+### Netflix personal-data import
+
+`NetflixFileImporter` parses local Netflix Viewing Activity CSV files and the documented supported ratings layout,
+maps the external profile label to the internal default profile, and persists only safely resolved records. Import
+reports distinguish new, repeated, unresolved, ambiguous, and invalid rows without echoing private titles. Stable
+opaque source identities make re-import idempotent while preserving genuinely repeated watches.
+
+No Netflix API key, PAT, credentials, cookies, or browser automation are used. Instructions for downloading exports,
+supported columns and encodings, locale-specific date configuration, privacy, and optional metadata enrichment are in
+[Netflix personal-data import](docs/netflix-import.md).
 
 ### Metadata provider development
 

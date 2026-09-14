@@ -49,7 +49,7 @@ def test_migration_upgrades_an_empty_database_to_current_schema(tmp_path: Path) 
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
 
     assert tables == EXPECTED_TABLES
-    assert revision == ("5b643bc941d8",)
+    assert revision == ("ca0c3ba9fe91",)
     command.check(config)
 
 
@@ -74,4 +74,4 @@ def test_migration_upgrades_phase_one_data_without_duplication(tmp_path: Path) -
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
 
     assert stored_media == [(media_id, "Existing Synthetic Movie")]
-    assert revision == ("5b643bc941d8",)
+    assert revision == ("ca0c3ba9fe91",)
