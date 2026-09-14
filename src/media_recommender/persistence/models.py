@@ -228,6 +228,36 @@ class WatchStateRecord(Base):
     imported_at: Mapped[str] = mapped_column(String(TIMESTAMP_LENGTH), nullable=False)
 
 
+class LibraryPresenceRecord(Base):
+    """ORM representation of profile-visible external library presence."""
+
+    __tablename__ = "library_presence"
+    __table_args__ = (
+        CheckConstraint("play_count IS NULL OR play_count >= 0", name="ck_library_presence_play_count"),
+        UniqueConstraint(
+            "profile_id",
+            "source_provider",
+            "source_record_id",
+            name="uq_library_presence_source_record",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(MEDIA_ID_LENGTH), primary_key=True)
+    profile_id: Mapped[str] = mapped_column(
+        String(MEDIA_ID_LENGTH), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    media_id: Mapped[str] = mapped_column(
+        String(MEDIA_ID_LENGTH), ForeignKey("media_items.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    available: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    play_count: Mapped[int | None] = mapped_column(Integer)
+    last_played_at: Mapped[str | None] = mapped_column(String(TIMESTAMP_LENGTH))
+    source_provider: Mapped[str] = mapped_column(String(PROVIDER_LENGTH), nullable=False)
+    source_record_id: Mapped[str] = mapped_column(String(SOURCE_RECORD_ID_LENGTH), nullable=False)
+    synchronization_id: Mapped[str | None] = mapped_column(String(SYNCHRONIZATION_ID_LENGTH))
+    imported_at: Mapped[str] = mapped_column(String(TIMESTAMP_LENGTH), nullable=False)
+
+
 class RatingRecord(Base):
     """ORM representation of a profile-owned rating or reaction."""
 

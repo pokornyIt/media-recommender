@@ -175,6 +175,45 @@ class WatchState:
             raise ValueError(msg)
 
 
+@dataclass(frozen=True, slots=True)
+class LibraryPresenceId:
+    """Stable identity of one provider library-presence record."""
+
+    value: UUID
+
+    @classmethod
+    def new(cls) -> LibraryPresenceId:
+        """Create a new library-presence identity.
+
+        :return: Newly generated library-presence identity.
+        """
+        return cls(uuid4())
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryPresence:
+    """Profile-visible presence of one catalog item in an external library."""
+
+    id: LibraryPresenceId
+    profile_id: ProfileId
+    media_id: MediaId
+    available: bool
+    provenance: SourceProvenance
+    play_count: int | None = None
+    last_played_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Validate optional provider playback metadata.
+
+        :raises ValueError: If the play count is negative or a timestamp is naive.
+        """
+        if isinstance(self.play_count, bool) or (self.play_count is not None and self.play_count < 0):
+            msg = "Library play count must not be negative"
+            raise ValueError(msg)
+        if self.last_played_at is not None:
+            _require_aware(self.last_played_at, "Last-played timestamp")
+
+
 class LikeState(StrEnum):
     """Explicit provider-independent reaction when one is known."""
 

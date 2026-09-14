@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from media_recommender.domain import WatchStatus, default_profile
 from media_recommender.persistence.database import session_scope
 from media_recommender.persistence.models import (
+    LibraryPresenceRecord,
     PreferenceRecord,
     ProfileRecord,
     ProviderProfileMappingRecord,
@@ -17,16 +18,19 @@ from media_recommender.persistence.models import (
     WatchStateRecord,
 )
 from media_recommender.persistence.personal_mapping import (
+    library_presence_to_record,
     preference_to_record,
     profile_to_record,
     provider_mapping_to_record,
     rating_to_record,
+    record_to_library_presence,
     record_to_preference,
     record_to_profile,
     record_to_provider_mapping,
     record_to_rating,
     record_to_viewing_event,
     record_to_watch_state,
+    update_library_presence_record,
     update_preference_record,
     update_provider_mapping_record,
     update_rating_record,
@@ -38,6 +42,7 @@ from media_recommender.persistence.personal_mapping import (
 
 if TYPE_CHECKING:
     from media_recommender.domain import (
+        LibraryPresence,
         MediaId,
         Preference,
         Profile,
@@ -152,6 +157,55 @@ class SqlAlchemyPersonalMediaRepository:
                 update_watch_state_record(record, state)
         return record_to_watch_state(record)
 
+    async def save_library_presence(self, presence: LibraryPresence) -> LibraryPresence:
+        """Persist provider library presence idempotently by source item identity.
+
+        :param presence: Current normalized library presence.
+        :return: Stored presence preserving its first internal identity.
+        :raises ValueError: If provider provenance has no stable source record ID.
+        """
+        source_record_id = presence.provenance.source_record_id
+        if source_record_id is None:
+            msg = "Library presence requires a source record ID"
+            raise ValueError(msg)
+        statement = select(LibraryPresenceRecord).where(
+            LibraryPresenceRecord.profile_id == str(presence.profile_id.value),
+            LibraryPresenceRecord.source_provider == presence.provenance.provider,
+            LibraryPresenceRecord.source_record_id == source_record_id,
+        )
+        async with session_scope(self._session_factory) as session:
+            record = await session.scalar(statement)
+            if record is None:
+                record = library_presence_to_record(presence)
+                session.add(record)
+            else:
+                update_library_presence_record(record, presence)
+        return record_to_library_presence(record)
+
+    async def list_library_presence(self, profile_id: ProfileId, provider: str) -> tuple[LibraryPresence, ...]:
+        """Return all provider library-presence records for one internal profile.
+
+        :param profile_id: Internal owner identity.
+        :param provider: Provider namespace.
+        :return: Presence records ordered by source item identity.
+        :raises ValueError: If the provider namespace is empty.
+        """
+        normalized_provider = provider.strip().lower()
+        if not normalized_provider:
+            msg = "Provider must not be empty"
+            raise ValueError(msg)
+        statement = (
+            select(LibraryPresenceRecord)
+            .where(
+                LibraryPresenceRecord.profile_id == str(profile_id.value),
+                LibraryPresenceRecord.source_provider == normalized_provider,
+            )
+            .order_by(LibraryPresenceRecord.source_record_id)
+        )
+        async with self._session_factory() as session:
+            records = (await session.scalars(statement)).all()
+        return tuple(record_to_library_presence(record) for record in records)
+
     async def get_watch_status(self, profile_id: ProfileId, media_id: MediaId) -> WatchStatus:
         """Derive three-state watch knowledge from events and explicit states.
 
@@ -182,6 +236,26 @@ class SqlAlchemyPersonalMediaRepository:
         if WatchStatus.UNWATCHED.value in statuses:
             return WatchStatus.UNWATCHED
         return WatchStatus.UNKNOWN
+
+    async def remove_watch_state(self, profile_id: ProfileId, media_id: MediaId, provider: str) -> None:
+        """Remove one provider's explicit watch state.
+
+        :param profile_id: Internal owner identity.
+        :param media_id: Shared catalog identity.
+        :param provider: Provider namespace to clear.
+        :raises ValueError: If the provider namespace is empty.
+        """
+        normalized_provider = provider.strip().lower()
+        if not normalized_provider:
+            msg = "Provider must not be empty"
+            raise ValueError(msg)
+        statement = delete(WatchStateRecord).where(
+            WatchStateRecord.profile_id == str(profile_id.value),
+            WatchStateRecord.media_id == str(media_id.value),
+            WatchStateRecord.source_provider == normalized_provider,
+        )
+        async with session_scope(self._session_factory) as session:
+            await session.execute(statement)
 
     async def save_rating(self, rating: Rating) -> Rating:
         """Persist a rating without creating viewing history.

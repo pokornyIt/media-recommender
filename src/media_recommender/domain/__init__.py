@@ -14,6 +14,8 @@ from media_recommender.domain.media import (
     TVShow,
 )
 from media_recommender.domain.personal import (
+    LibraryPresence,
+    LibraryPresenceId,
     LikeState,
     Preference,
     PreferenceEffect,
@@ -40,6 +42,8 @@ __all__ = [
     "Country",
     "ExternalId",
     "Genre",
+    "LibraryPresence",
+    "LibraryPresenceId",
     "LikeState",
     "Media",
     "MediaId",

@@ -26,6 +26,14 @@ from media_recommender.application.imports import (
     PersonalImportResult,
     PersonalMediaImportService,
 )
+from media_recommender.application.library import (
+    InvalidLibraryItem,
+    LibraryItemResult,
+    LibraryItemSnapshot,
+    LibraryItemStatus,
+    LibrarySynchronizationResult,
+    LibrarySynchronizationService,
+)
 from media_recommender.application.personal import PersonalMediaRepository, ProfileRepository
 from media_recommender.application.providers import MediaSearchResult, MetadataProvider
 from media_recommender.application.services import CatalogService
@@ -37,7 +45,13 @@ __all__ = [
     "ImportRecordResult",
     "ImportRecordStatus",
     "InvalidImportRecord",
+    "InvalidLibraryItem",
     "InvalidProviderResultError",
+    "LibraryItemResult",
+    "LibraryItemSnapshot",
+    "LibraryItemStatus",
+    "LibrarySynchronizationResult",
+    "LibrarySynchronizationService",
     "MatchKind",
     "MatchReason",
     "MediaCatalog",
