@@ -99,6 +99,8 @@ class SqlAlchemyMediaCatalog:
             record = await session.scalar(statement)
             if record is None:
                 record = media_to_record(media)
+                record.genres = []
+                record.countries = []
                 session.add(record)
             else:
                 update_record(record, media)
