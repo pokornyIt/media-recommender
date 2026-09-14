@@ -13,5 +13,6 @@
     "selectinload",
     "TMDB",
     "tvdb"
-  ]
+  ],
+  "python.terminal.useEnvFile": true
 }
