@@ -7,6 +7,7 @@ from media_recommender.application.errors import (
     MediaDetailsNotFoundError,
     MetadataProviderNotConfiguredError,
 )
+from media_recommender.application.personal import PersonalMediaRepository, ProfileRepository
 from media_recommender.application.providers import MediaSearchResult, MetadataProvider
 from media_recommender.application.services import CatalogService
 
@@ -21,4 +22,6 @@ __all__ = [
     "MediaSearchResult",
     "MetadataProvider",
     "MetadataProviderNotConfiguredError",
+    "PersonalMediaRepository",
+    "ProfileRepository",
 ]

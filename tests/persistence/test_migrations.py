@@ -15,6 +15,12 @@ EXPECTED_TABLES = {
     "media_countries",
     "media_genres",
     "media_items",
+    "preferences",
+    "profiles",
+    "provider_profile_mappings",
+    "ratings",
+    "viewing_events",
+    "watch_states",
 }
 REPOSITORY_ROOT = Path(__file__).parents[2]
 
@@ -43,5 +49,29 @@ def test_migration_upgrades_an_empty_database_to_current_schema(tmp_path: Path) 
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
 
     assert tables == EXPECTED_TABLES
-    assert revision == ("14fde284fd0d",)
+    assert revision == ("5b643bc941d8",)
     command.check(config)
+
+
+def test_migration_upgrades_phase_one_data_without_duplication(tmp_path: Path) -> None:
+    """Verify the personal schema upgrades an existing Phase 1 catalog in place."""
+    database_path = tmp_path / "phase-one.db"
+    config = alembic_config(database_path)
+    command.upgrade(config, "14fde284fd0d")
+
+    media_id = "078fa456-ced1-484f-a0f4-e81816a55467"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "INSERT INTO media_items (id, media_type, title) VALUES (?, ?, ?)",
+            (media_id, "movie", "Existing Synthetic Movie"),
+        )
+        connection.commit()
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(database_path) as connection:
+        stored_media = connection.execute("SELECT id, title FROM media_items").fetchall()
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
+
+    assert stored_media == [(media_id, "Existing Synthetic Movie")]
+    assert revision == ("5b643bc941d8",)
