@@ -81,12 +81,14 @@ events, ratings and reactions, preferences and exclusions, and external provider
 reference the shared catalog rather than duplicating media metadata. Source record and synchronization identities make
 later supported imports repeatable without treating a provider identity as the application user.
 
-The Web, REST, ranking, MCP, and deployment layers shown above remain planned. Local
+The Web, REST, MCP, and deployment layers shown above remain planned. Local
 Netflix Viewing Activity and supported ratings CSV imports now flow through the shared identity resolver into
 profile-owned personal state. Jellyfin movie and series libraries can be synchronized through its supported API,
 including distinct library presence and per-user watched state. Regional streaming availability can be refreshed from
 TMDB watch-provider data and is stored separately from both personal state and local-library presence. Typed hard
 constraints now combine those normalized facts into deterministic profile-specific recommendation candidate sets.
+The in-process Phase 2 orchestration facade coordinates source workflows and deterministic ranked recommendations for
+the implicit default profile while returning structured summaries suitable for future interfaces.
 
 ## Main project areas
 
@@ -181,8 +183,9 @@ The application can represent movies and TV shows, normalize TMDB metadata, pers
 personal media state in SQLite, and expose those workflows through provider-independent application contracts. The
 automated tests use synthetic data, temporary databases, and mock transports, so normal validation is fully offline.
 
-There is no executable application entry point, end-user interface, recommendation engine, AI behavior, MCP
-interface, or production deployment yet.
+There is no executable application entry point, end-user interface, AI behavior, MCP interface, or production
+deployment yet. Phase 2 recommendation and synchronization capabilities are exposed as in-process application
+services for future interfaces.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part
@@ -242,6 +245,8 @@ export MEDIA_RECOMMENDER_TMDB_API_TOKEN="replace-with-tmdb-api-read-access-token
 
 Optional TMDB and Jellyfin configuration, endpoint, and timeout settings are documented in
 [Provider integration conventions](docs/provider-integrations.md).
+The complete default-profile synchronization and recommendation flow is documented in
+[Phase 2 application workflows](docs/phase-2-workflows.md).
 
 ### Local database
 

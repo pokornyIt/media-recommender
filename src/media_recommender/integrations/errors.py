@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from media_recommender.application.errors import SourceWorkflowError
 
-class ProviderError(Exception):
+
+class ProviderError(SourceWorkflowError):
     """Base class for failures produced by a metadata provider."""
 
 
