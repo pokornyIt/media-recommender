@@ -1,4 +1,4 @@
-"""Errors raised by catalog application services."""
+"""Errors raised or handled by application services."""
 
 from __future__ import annotations
 
@@ -10,6 +10,10 @@ if TYPE_CHECKING:
 
 class CatalogServiceError(Exception):
     """Base class for catalog application-service failures."""
+
+
+class SourceWorkflowError(Exception):
+    """Base class for safe source failures handled by orchestration."""
 
 
 class MetadataProviderNotConfiguredError(CatalogServiceError):

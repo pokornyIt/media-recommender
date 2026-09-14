@@ -1,0 +1,403 @@
+"""Offline end-to-end validation of the complete Phase 2 workflow."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import replace
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from alembic import command
+from alembic.config import Config
+
+from media_recommender.application import (
+    AvailabilityCriterion,
+    AvailabilityOffer,
+    AvailabilityRefreshRequest,
+    AvailabilityRefreshService,
+    AvailabilitySourceKind,
+    MediaIdentityCandidate,
+    MediaIdentityResolver,
+    Phase2Orchestrator,
+    Phase2SynchronizationRequest,
+    ProductionRegion,
+    RecommendationCriteria,
+    RecommendationService,
+    WatchRequirement,
+    WorkflowItemStatus,
+    WorkflowKind,
+    WorkflowReport,
+    WorkflowStatus,
+)
+from media_recommender.application.imports import PersonalMediaImportService
+from media_recommender.application.library import LibrarySynchronizationService
+from media_recommender.config import Settings
+from media_recommender.domain import (
+    AvailabilityType,
+    Country,
+    ExternalId,
+    Genre,
+    MediaId,
+    MediaType,
+    Movie,
+    Preference,
+    PreferenceEffect,
+    PreferenceId,
+    PreferenceKind,
+    Runtime,
+    StreamingService,
+)
+from media_recommender.integrations import ProviderUnavailableError
+from media_recommender.integrations.jellyfin import JellyfinLibrarySynchronizer
+from media_recommender.integrations.jellyfin.models import JellyfinItemsResponse, JellyfinUser
+from media_recommender.integrations.netflix import NetflixFileImporter
+from media_recommender.persistence import (
+    SqlAlchemyAvailabilityRepository,
+    SqlAlchemyMediaCatalog,
+    SqlAlchemyPersonalMediaRepository,
+    SqlAlchemyRecommendationDataSource,
+    create_engine,
+    create_session_factory,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from media_recommender.persistence.database import SessionFactory
+
+SYNTHETIC_NOW = datetime(2026, 9, 14, 20, tzinfo=UTC)
+PHASE_ONE_REVISION = "14fde284fd0d"
+EXPECTED_AVAILABILITY_REFRESHES = 3
+EXPECTED_AMBIGUOUS_CANDIDATES = 2
+EXPECTED_PROVIDER_MAPPINGS = 2
+
+
+class SyntheticIdentityEnricher:
+    """Add deterministic synthetic metadata to sparse Netflix title evidence."""
+
+    def __init__(self, years: dict[str, int]) -> None:
+        """Store release years keyed by synthetic title."""
+        self._years = years
+
+    async def enrich(self, candidate: MediaIdentityCandidate) -> MediaIdentityCandidate:
+        """Return candidate evidence with a configured release year."""
+        year = self._years.get(candidate.title)
+        return replace(candidate, release_year=year) if year is not None else candidate
+
+
+class SyntheticJellyfinClient:
+    """Return a complete synthetic library or one transient provider failure."""
+
+    def __init__(self, items: list[dict[str, object]]) -> None:
+        """Store the current synthetic library snapshot."""
+        self.items = items
+        self.fail = False
+
+    async def validate_user(self) -> JellyfinUser:
+        """Return one selected user unless failure is enabled."""
+        if self.fail:
+            raise ProviderUnavailableError
+        return JellyfinUser.model_validate({"Id": "synthetic-user", "Name": "Synthetic User"})
+
+    async def get_library_items(self) -> JellyfinItemsResponse:
+        """Return the current complete synthetic item response."""
+        return JellyfinItemsResponse.model_validate({"Items": self.items})
+
+
+class SyntheticAvailabilityProvider:
+    """Return Netflix subscription availability with selectable transient failures."""
+
+    source = "tmdb"
+    attribution: str | None = "JustWatch"
+
+    def __init__(self) -> None:
+        """Initialize with no failing TMDB identities."""
+        self.failing_ids: set[str] = set()
+
+    async def get_availability(
+        self,
+        external_id: ExternalId,
+        media_type: MediaType,
+        region: str,
+    ) -> Sequence[AvailabilityOffer]:
+        """Return one normalized offer or simulate a transient provider failure."""
+        del media_type, region
+        if external_id.value in self.failing_ids:
+            raise ProviderUnavailableError
+        return (AvailabilityOffer(StreamingService("8", "Netflix"), AvailabilityType.SUBSCRIPTION),)
+
+
+def _alembic_config(database_path: Path) -> Config:
+    """Return Alembic configuration targeting a temporary SQLite database."""
+    config = Config(Path(__file__).parents[1] / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{database_path}")
+    return config
+
+
+def _movie(  # noqa: PLR0913 - mirrors the catalog metadata varied by the end-to-end scenario.
+    title: str,
+    tmdb_id: str,
+    *,
+    year: int,
+    runtime: int,
+    genres: tuple[str, ...] = ("Science Fiction",),
+    country: str = "US",
+) -> Movie:
+    """Build one fully normalized synthetic catalog movie."""
+    country_names = {"US": "United States", "FR": "France", "JP": "Japan"}
+    return Movie(
+        id=MediaId.new(),
+        title=title,
+        released_on=date(year, 1, 1),
+        runtime=Runtime(runtime),
+        genres=tuple(Genre(genre) for genre in genres),
+        production_countries=(Country(country, country_names[country]),),
+        external_ids=frozenset({ExternalId("tmdb", tmdb_id)}),
+    )
+
+
+async def _build_orchestrator(
+    database_path: Path,
+) -> tuple[
+    AsyncEngine,
+    SessionFactory,
+    SqlAlchemyMediaCatalog,
+    SqlAlchemyPersonalMediaRepository,
+    SyntheticJellyfinClient,
+    SyntheticAvailabilityProvider,
+    Phase2Orchestrator,
+    dict[str, Movie],
+]:
+    """Create all real application services over a migrated Phase 1 database."""
+    engine = create_engine(Settings(database_path=database_path))
+    sessions = create_session_factory(engine)
+    catalog = SqlAlchemyMediaCatalog(sessions)
+    personal = SqlAlchemyPersonalMediaRepository(sessions)
+    availability_repository = SqlAlchemyAvailabilityRepository(sessions)
+    movies = {
+        "local": _movie("Local Short", "1", year=2025, runtime=95, country="FR"),
+        "netflix": _movie("Netflix Long", "2", year=2024, runtime=140),
+        "watched": _movie("Watched Movie", "3", year=2023, runtime=100),
+        "excluded": _movie(
+            "Excluded Horror",
+            "4",
+            year=2024,
+            runtime=80,
+            genres=("Science Fiction", "Horror"),
+            country="JP",
+        ),
+        "ambiguous_one": _movie("Ambiguous Movie", "5", year=2020, runtime=100),
+        "ambiguous_two": _movie("Ambiguous Movie", "6", year=2020, runtime=100),
+    }
+    for movie in movies.values():
+        await catalog.save(movie)
+
+    resolver = MediaIdentityResolver(
+        catalog,
+        enricher=SyntheticIdentityEnricher(
+            {
+                "Local Short": 2025,
+                "Watched Movie": 2023,
+                "Ambiguous Movie": 2020,
+            }
+        ),
+    )
+    netflix = NetflixFileImporter(PersonalMediaImportService(personal, personal, resolver, clock=lambda: SYNTHETIC_NOW))
+    jellyfin_client = SyntheticJellyfinClient(
+        [
+            {
+                "Id": "local-short",
+                "Name": "Local Short",
+                "Type": "Movie",
+                "ProviderIds": {"Tmdb": "1"},
+                "UserData": {"Played": False, "PlayCount": 0},
+            },
+            {
+                "Id": "unresolved",
+                "Name": "Unknown Library Movie",
+                "Type": "Movie",
+                "ProductionYear": 2022,
+            },
+            {"Id": "invalid", "Name": "Missing media type"},
+        ]
+    )
+    library = JellyfinLibrarySynchronizer(
+        jellyfin_client,
+        LibrarySynchronizationService(personal, personal, resolver, clock=lambda: SYNTHETIC_NOW),
+        synchronization_id_factory=lambda: "synthetic-jellyfin-snapshot",
+    )
+    availability_provider = SyntheticAvailabilityProvider()
+    availability = AvailabilityRefreshService(
+        resolver,
+        availability_provider,
+        availability_repository,
+        clock=lambda: SYNTHETIC_NOW,
+    )
+    recommendations = RecommendationService(SqlAlchemyRecommendationDataSource(sessions))
+    orchestrator = Phase2Orchestrator(personal, netflix, library, availability, recommendations)
+    return (
+        engine,
+        sessions,
+        catalog,
+        personal,
+        jellyfin_client,
+        availability_provider,
+        orchestrator,
+        movies,
+    )
+
+
+def _write_netflix_files(directory: Path) -> tuple[Path, Path]:
+    """Write private synthetic Netflix inputs into the temporary test directory."""
+    viewing = directory / "NetflixViewingHistory.csv"
+    viewing.write_text(
+        "Title,Date\nWatched Movie,9/14/26\nAmbiguous Movie,9/13/26\n",
+        encoding="utf-8",
+    )
+    ratings = directory / "Ratings.csv"
+    ratings.write_text(
+        "Profile Name,Title Name,Rating Type,Star Value,Thumbs Value,Event Utc Ts,Region View Date\n"
+        "Synthetic profile,Local Short,Thumbs,0,2,2026-09-14T12:00:00Z,9/14/26\n",
+        encoding="utf-8",
+    )
+    return viewing, ratings
+
+
+def _refresh_requests(movies: dict[str, Movie]) -> tuple[AvailabilityRefreshRequest, ...]:
+    """Return the regional synthetic availability batch."""
+    return tuple(
+        AvailabilityRefreshRequest(
+            position=position,
+            candidate=MediaIdentityCandidate(
+                media_type=MediaType.MOVIE,
+                title=movies[key].title,
+                external_ids=frozenset({next(iter(movies[key].external_ids))}),
+            ),
+            region="CZ",
+        )
+        for position, key in enumerate(("netflix", "watched", "excluded"), start=1)
+    )
+
+
+def _report(result: Sequence[WorkflowReport], kind: WorkflowKind) -> WorkflowReport:
+    """Return one report by operation kind."""
+    return next(report for report in result if report.kind is kind)
+
+
+async def _exercise_phase2_workflow(database_path: Path, temporary_directory: Path) -> None:
+    """Validate all Phase 2 workflows, repetition, failure isolation, and recommendations."""
+    (
+        engine,
+        _sessions,
+        _catalog,
+        personal,
+        jellyfin_client,
+        availability_provider,
+        orchestrator,
+        movies,
+    ) = await _build_orchestrator(database_path)
+    viewing_path, ratings_path = _write_netflix_files(temporary_directory)
+    request = Phase2SynchronizationRequest(
+        netflix_profile="Synthetic profile",
+        netflix_viewing_path=viewing_path,
+        netflix_ratings_path=ratings_path,
+        availability=_refresh_requests(movies),
+    )
+
+    first = await orchestrator.synchronize(request)
+    second = await orchestrator.synchronize(request)
+    first_viewing = _report(first.reports, WorkflowKind.NETFLIX_VIEWING)
+    first_library = _report(first.reports, WorkflowKind.JELLYFIN_LIBRARY)
+    first_availability = _report(first.reports, WorkflowKind.STREAMING_AVAILABILITY)
+    second_viewing = _report(second.reports, WorkflowKind.NETFLIX_VIEWING)
+
+    assert first.status is WorkflowStatus.PARTIAL
+    assert (first_viewing.counts.succeeded, first_viewing.counts.ambiguous) == (1, 1)
+    assert any(
+        item.status is WorkflowItemStatus.AMBIGUOUS and len(item.candidate_ids) == EXPECTED_AMBIGUOUS_CANDIDATES
+        for item in first_viewing.items
+    )
+    assert (first_library.counts.succeeded, first_library.counts.unresolved, first_library.counts.invalid) == (1, 1, 1)
+    assert first_availability.counts.succeeded == EXPECTED_AVAILABILITY_REFRESHES
+    assert second_viewing.counts.skipped == 1
+
+    missing_file = await orchestrator.synchronize(
+        Phase2SynchronizationRequest(
+            netflix_profile="Synthetic profile",
+            netflix_viewing_path=temporary_directory / "missing.csv",
+        )
+    )
+    missing_file_report = _report(missing_file.reports, WorkflowKind.NETFLIX_VIEWING)
+    assert missing_file.status is WorkflowStatus.PARTIAL
+    assert missing_file_report.status is WorkflowStatus.FAILED
+    assert missing_file_report.counts.failed == 1
+
+    profile = await personal.get_or_create_default()
+    assert profile.is_default
+    assert len(await personal.list_viewing_events(profile.id, movies["watched"].id)) == 1
+    assert len(await personal.list_ratings(profile.id, movies["local"].id)) == 1
+    assert len(await personal.list_provider_mappings(profile.id)) == EXPECTED_PROVIDER_MAPPINGS
+    await personal.save_preference(
+        Preference(
+            id=PreferenceId.new(),
+            profile_id=profile.id,
+            kind=PreferenceKind.RUNTIME_MINUTES,
+            effect=PreferenceEffect.PREFER,
+            maximum=100,
+        )
+    )
+    await personal.save_preference(
+        Preference(
+            id=PreferenceId.new(),
+            profile_id=profile.id,
+            kind=PreferenceKind.PROVIDER,
+            effect=PreferenceEffect.PREFER,
+            value="Jellyfin",
+        )
+    )
+
+    criteria = RecommendationCriteria(
+        media_types=frozenset({MediaType.MOVIE}),
+        include_genres=frozenset({"Science Fiction"}),
+        exclude_genres=frozenset({"Horror", "Comedy"}),
+        exclude_regions=frozenset({ProductionRegion.AFRICA, ProductionRegion.ASIA, ProductionRegion.SOUTH_AMERICA}),
+        maximum_runtime_minutes=150,
+        watch=WatchRequirement.NOT_WATCHED,
+        availability_any_of=(
+            AvailabilityCriterion(kind=AvailabilitySourceKind.STREAMING, provider="Netflix", region="CZ"),
+            AvailabilityCriterion(kind=AvailabilitySourceKind.LOCAL_LIBRARY, provider="Jellyfin"),
+        ),
+    )
+    recommendation = await orchestrator.recommend(criteria)
+    assert tuple((item.media.title, item.score) for item in recommendation.recommendations) == (
+        ("Local Short", 230),
+        ("Netflix Long", 0),
+    )
+    assert all(item.matched_constraints and item.availability for item in recommendation.recommendations)
+
+    jellyfin_client.fail = True
+    availability_provider.failing_ids.add("2")
+    failed = await orchestrator.synchronize(request)
+    failed_library = _report(failed.reports, WorkflowKind.JELLYFIN_LIBRARY)
+    failed_availability = _report(failed.reports, WorkflowKind.STREAMING_AVAILABILITY)
+    assert failed.status is WorkflowStatus.PARTIAL
+    assert failed_library.status is WorkflowStatus.FAILED
+    assert failed_availability.status is WorkflowStatus.PARTIAL
+    assert failed_availability.counts.failed == 1
+
+    after_failure = await orchestrator.recommend(criteria)
+    assert tuple(item.media.title for item in after_failure.recommendations) == ("Local Short", "Netflix Long")
+    assert any(item.media.title == "Netflix Long" and item.availability for item in after_failure.recommendations)
+    await engine.dispose()
+
+
+def test_phase2_workflow_is_offline_repeatable_and_failure_isolated(tmp_path: Path) -> None:
+    """Verify the complete Phase 2 flow from a Phase 1 migration to recommendations."""
+    database_path = tmp_path / "phase2.db"
+    config = _alembic_config(database_path)
+    command.upgrade(config, PHASE_ONE_REVISION)
+    command.upgrade(config, "head")
+    asyncio.run(_exercise_phase2_workflow(database_path, tmp_path))
