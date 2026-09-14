@@ -16,6 +16,7 @@ from media_recommender.application import (
     AvailabilitySourceKind,
     RecommendationCriteria,
     RecommendationFilterService,
+    RecommendationService,
     WatchRequirement,
 )
 from media_recommender.config import Settings
@@ -27,6 +28,10 @@ from media_recommender.domain import (
     LibraryPresenceId,
     MediaId,
     Movie,
+    Preference,
+    PreferenceEffect,
+    PreferenceId,
+    PreferenceKind,
     Profile,
     ProfileId,
     SourceProvenance,
@@ -122,6 +127,15 @@ async def _exercise_recommendation_data_source(database_path: Path) -> None:
             ),
         )
     )
+    await personal.save_preference(
+        Preference(
+            id=PreferenceId.new(),
+            profile_id=second_profile.id,
+            kind=PreferenceKind.PROVIDER,
+            effect=PreferenceEffect.PREFER,
+            value="Jellyfin",
+        )
+    )
     netflix = StreamingAvailability(
         media_id=streaming_movie.id,
         service=StreamingService("8", "Netflix"),
@@ -174,6 +188,11 @@ async def _exercise_recommendation_data_source(database_path: Path) -> None:
     second_result = await RecommendationFilterService(data_source).filter(second_profile.id, criteria)
     assert tuple(media.title for media in first_result.accepted) == ("Streaming Movie",)
     assert tuple(media.title for media in second_result.accepted) == ("Local Movie", "Streaming Movie")
+    ranked_result = await RecommendationService(data_source).recommend(second_profile.id, criteria)
+    assert tuple((item.media.title, item.score) for item in ranked_result.recommendations) == (
+        ("Local Movie", 100),
+        ("Streaming Movie", 0),
+    )
     await engine.dispose()
 
 
