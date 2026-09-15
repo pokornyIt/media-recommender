@@ -11,22 +11,40 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from media_recommender.application import (
+    AvailabilityCriterion,
     AvailabilitySourceKind,
     ConstraintMatch,
     ConstraintMatchKind,
+    FilterExclusion,
+    FilterReason,
+    GenreMatch,
     KnownAvailability,
     RankedRecommendation,
     RankingReason,
     RankingReasonKind,
     RecommendationCriteria,
+    RecommendationDecision,
     RecommendationFilterResult,
     RecommendationResult,
     RecommendationWarning,
     RecommendationWarningKind,
+    WatchRequirement,
 )
-from media_recommender.domain import AvailabilityType, Genre, LikeState, MediaId, Movie, Runtime, TVShow, WatchStatus
+from media_recommender.application.regions import ProductionRegion
+from media_recommender.domain import (
+    AvailabilityType,
+    Genre,
+    LikeState,
+    MediaId,
+    MediaType,
+    Movie,
+    Runtime,
+    TVShow,
+    WatchStatus,
+)
 from media_recommender.web import create_app
 from media_recommender.web.routes.recommendations import get_recommendation_service
+from media_recommender.web.schemas.recommendations import RecommendationRequest, request_to_criteria
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -106,10 +124,92 @@ def _result() -> RecommendationResult:
             like_states=(),
         ),
     )
-    return RecommendationResult(recommendations=recommendations, filter_result=RecommendationFilterResult((), ()))
+    rejected_movie = Movie(id=MediaId(UUID("55555555-5555-5555-5555-555555555555")), title="Rejected private title")
+    return RecommendationResult(
+        recommendations=recommendations,
+        filter_result=RecommendationFilterResult(
+            (),
+            (
+                RecommendationDecision(
+                    media=rejected_movie,
+                    exclusions=(FilterExclusion(FilterReason.GENRE_EXCLUDED, ("internal-filter-decision",)),),
+                ),
+            ),
+        ),
+    )
 
 
-def test_recommendations_route_maps_every_criterion_and_preserves_service_order() -> None:
+def _complete_request() -> dict[str, object]:
+    """Return every supported request field with synthetic valid values."""
+    return {
+        "media_types": ["movie", "tv_show"],
+        "include_genres": ["Drama", "Science Fiction"],
+        "genre_match": "any",
+        "exclude_genres": ["Horror"],
+        "include_countries": ["cz"],
+        "exclude_countries": ["us"],
+        "include_regions": ["europe"],
+        "exclude_regions": ["asia"],
+        "minimum_runtime_minutes": 90,
+        "maximum_runtime_minutes": 120,
+        "minimum_release_year": 2020,
+        "maximum_release_year": 2025,
+        "released_from": "2020-01-01",
+        "released_until": "2025-01-01",
+        "watch": "not_watched",
+        "minimum_personal_rating": 6.5,
+        "excluded_like_states": ["disliked"],
+        "availability_any_of": [
+            {"kind": "local_library", "provider": "Jellyfin"},
+            {
+                "kind": "streaming",
+                "provider": "Netflix",
+                "region": "cz",
+                "source_provider": "tmdb",
+                "availability_types": ["subscription"],
+            },
+        ],
+        "apply_profile_exclusions": False,
+    }
+
+
+def test_request_to_criteria_maps_every_request_field() -> None:
+    """Map each validated HTTP request field to its typed application counterpart."""
+    criteria = request_to_criteria(RecommendationRequest.model_validate(_complete_request()))
+
+    assert criteria == RecommendationCriteria(
+        media_types=frozenset({MediaType.MOVIE, MediaType.TV_SHOW}),
+        include_genres=frozenset({"drama", "science fiction"}),
+        genre_match=GenreMatch.ANY,
+        exclude_genres=frozenset({"horror"}),
+        include_countries=frozenset({"CZ"}),
+        exclude_countries=frozenset({"US"}),
+        include_regions=frozenset({ProductionRegion.EUROPE}),
+        exclude_regions=frozenset({ProductionRegion.ASIA}),
+        minimum_runtime_minutes=90,
+        maximum_runtime_minutes=120,
+        minimum_release_year=2020,
+        maximum_release_year=2025,
+        released_from=date(2020, 1, 1),
+        released_until=date(2025, 1, 1),
+        watch=WatchRequirement.NOT_WATCHED,
+        minimum_personal_rating=6.5,
+        excluded_like_states=frozenset({LikeState.DISLIKED}),
+        availability_any_of=(
+            AvailabilityCriterion(kind=AvailabilitySourceKind.LOCAL_LIBRARY, provider="jellyfin"),
+            AvailabilityCriterion(
+                kind=AvailabilitySourceKind.STREAMING,
+                provider="Netflix",
+                region="CZ",
+                source_provider="tmdb",
+                availability_types=frozenset({AvailabilityType.SUBSCRIPTION}),
+            ),
+        ),
+        apply_profile_exclusions=False,
+    )
+
+
+def test_recommendations_route_maps_complete_contract_and_preserves_service_order() -> None:
     """Delegate once while retaining accepted result fields and supplied ordering."""
     fake_service = FakeRecommendationService(_result())
     app = create_app()
@@ -117,55 +217,77 @@ def test_recommendations_route_maps_every_criterion_and_preserves_service_order(
 
     response = _client(app).post(
         "/api/v1/recommendations",
-        json={
-            "media_types": ["movie", "tv_show"],
-            "include_genres": ["Drama", "Science Fiction"],
-            "genre_match": "any",
-            "exclude_genres": ["Horror"],
-            "include_countries": ["cz"],
-            "exclude_countries": ["us"],
-            "include_regions": ["europe"],
-            "exclude_regions": ["asia"],
-            "minimum_runtime_minutes": 90,
-            "maximum_runtime_minutes": 120,
-            "minimum_release_year": 2020,
-            "maximum_release_year": 2025,
-            "released_from": "2020-01-01",
-            "released_until": "2025-01-01",
-            "watch": "not_watched",
-            "minimum_personal_rating": 6.5,
-            "excluded_like_states": ["disliked"],
-            "availability_any_of": [
-                {"kind": "local_library", "provider": "Jellyfin"},
-                {
-                    "kind": "streaming",
-                    "provider": "Netflix",
-                    "region": "cz",
-                    "source_provider": "tmdb",
-                    "availability_types": ["subscription"],
-                },
-            ],
-            "apply_profile_exclusions": False,
-        },
+        json=_complete_request(),
     )
 
     assert response.status_code == HTTPStatus.OK
     assert len(fake_service.criteria) == 1
-    criteria = fake_service.criteria[0]
-    assert criteria.include_genres == frozenset({"drama", "science fiction"})
-    assert criteria.genre_match.value == "any"
-    assert criteria.include_countries == frozenset({"CZ"})
-    assert criteria.availability_any_of[0].kind.value == "local_library"
-    assert criteria.availability_any_of[1].region == "CZ"
-    assert criteria.apply_profile_exclusions is False
-    payload = response.json()
-    assert [item["media"]["id"] for item in payload["recommendations"]] == [str(MOVIE_ID), str(TV_SHOW_ID)]
-    assert payload["recommendations"][0]["matched_constraints"] == [{"kind": "genre_included", "values": ["drama"]}]
-    assert payload["recommendations"][0]["ranking_reasons"] == [{"kind": "liked", "points": 30, "values": ["liked"]}]
-    assert payload["recommendations"][0]["warnings"] == [{"kind": "availability_unknown"}]
-    assert payload["recommendations"][0]["availability"][0]["region"] == "CZ"
-    assert "filter_result" not in payload
-    assert "decisions" not in str(payload)
+    assert fake_service.criteria[0] == request_to_criteria(RecommendationRequest.model_validate(_complete_request()))
+    assert response.json() == {
+        "recommendations": [
+            {
+                "media": {
+                    "id": str(MOVIE_ID),
+                    "title": "Synthetic Movie",
+                    "original_title": None,
+                    "release_date": "2024-01-02",
+                    "release_year": 2024,
+                    "genres": [{"name": "Drama"}],
+                    "production_countries": [],
+                    "artwork": [],
+                    "external_ids": [],
+                    "media_type": "movie",
+                    "runtime_minutes": 101,
+                },
+                "rank": 2,
+                "score": 15,
+                "matched_constraints": [{"kind": "genre_included", "values": ["drama"]}],
+                "ranking_reasons": [{"kind": "liked", "points": 30, "values": ["liked"]}],
+                "warnings": [{"kind": "availability_unknown"}],
+                "availability": [
+                    {
+                        "kind": "streaming",
+                        "provider": "Netflix",
+                        "region": "CZ",
+                        "availability_type": "subscription",
+                        "source_provider": "tmdb",
+                    }
+                ],
+                "watch_status": "unwatched",
+                "personal_rating": 7.5,
+                "like_states": ["liked"],
+            },
+            {
+                "media": {
+                    "id": str(TV_SHOW_ID),
+                    "title": "Synthetic Series",
+                    "original_title": None,
+                    "release_date": None,
+                    "release_year": None,
+                    "genres": [],
+                    "production_countries": [],
+                    "artwork": [],
+                    "external_ids": [],
+                    "media_type": "tv_show",
+                    "episode_runtime_minutes": None,
+                },
+                "rank": 1,
+                "score": 9,
+                "matched_constraints": [],
+                "ranking_reasons": [],
+                "warnings": [],
+                "availability": [],
+                "watch_status": "unknown",
+                "personal_rating": None,
+                "like_states": [],
+            },
+        ]
+    }
+    serialized_response = response.text
+    assert "filter_result" not in serialized_response
+    assert "decisions" not in serialized_response
+    assert "Rejected private title" not in serialized_response
+    assert "internal-filter-decision" not in serialized_response
 
 
 def test_recommendations_route_returns_an_empty_successful_collection() -> None:
@@ -195,6 +317,26 @@ def test_recommendations_route_returns_safe_error_for_application_criteria_valid
     assert response.json() == {
         "error": {"code": "recommendation_criteria_invalid", "message": "Invalid recommendation criteria"}
     }
+
+
+def test_recommendations_route_rejects_invalid_enums_ranges_and_availability_without_private_data() -> None:
+    """Return safe client errors for invalid request-local recommendation inputs."""
+    app = create_app()
+    app.dependency_overrides[get_recommendation_service] = lambda: FakeRecommendationService(_result())
+
+    for request in (
+        {"watch": "sometimes"},
+        {"minimum_runtime_minutes": 121, "maximum_runtime_minutes": 120},
+        {"minimum_release_year": 2026, "maximum_release_year": 2025},
+        {"released_from": "2025-01-02", "released_until": "2025-01-01"},
+        {"availability_any_of": [{"kind": "streaming", "provider": "Netflix", "region": "CZE"}]},
+        {"availability_any_of": [{"kind": "local_library", "provider": "  "}]},
+    ):
+        response = _client(app).post("/api/v1/recommendations", json=request)
+
+        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+        assert "Rejected private title" not in response.text
+        assert "internal-filter-decision" not in response.text
 
 
 def test_recommendations_route_declares_dependency_and_openapi_without_hidden_filter_data() -> None:
