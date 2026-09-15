@@ -81,8 +81,10 @@ events, ratings and reactions, preferences and exclusions, and external provider
 reference the shared catalog rather than duplicating media metadata. Source record and synchronization identities make
 later supported imports repeatable without treating a provider identity as the application user.
 
-The Web, REST, MCP, and deployment layers shown above remain planned. Local
-Netflix Viewing Activity and supported ratings CSV imports now flow through the shared identity resolver into
+The FastAPI HTTP boundary and server-rendered Web shell are implemented; provider settings and configuration UI,
+import and synchronization UI or controls, complete recommendation and media-detail screens, MCP, and deployment
+remain planned. Local Netflix Viewing Activity
+and supported ratings CSV imports now flow through the shared identity resolver into
 profile-owned personal state. Jellyfin movie and series libraries can be synchronized through its supported API,
 including distinct library presence and per-user watched state. Regional streaming availability can be refreshed from
 TMDB watch-provider data and is stored separately from both personal state and local-library presence. Typed hard
@@ -154,6 +156,10 @@ shared page layout and static CSS form the responsive, accessible baseline for l
 constraints to the injected Phase 2 recommendation facade and returns only ordered accepted ranked recommendations
 with factual structured explanations. It does not expose rejected candidates, filter decisions, or exclusions.
 
+The implemented server-rendered UI is currently limited to the shared application shell and home page. Provider
+configuration, import and synchronization controls, recommendation results, and media-detail and personal-state
+screens remain future Web work.
+
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
 render ORM records and provider transport DTOs directly. API responses use a common JSON error envelope where an
 interface handler owns the error. Framework HTTP and validation responses retain FastAPI/Starlette semantics, and
@@ -206,9 +212,10 @@ The application can represent movies and TV shows, normalize TMDB metadata, pers
 personal media state in SQLite, and expose those workflows through provider-independent application contracts. The
 automated tests use synthetic data, temporary databases, and mock transports, so normal validation is fully offline.
 
-There is no executable application entry point, end-user interface, AI behavior, MCP interface, or production
-deployment yet. Phase 2 recommendation and synchronization capabilities are exposed as in-process application
-services for future interfaces.
+The repository provides a FastAPI application factory, a server-rendered application shell, and documented liveness,
+media-read, and deterministic recommendation HTTP endpoints. There is no production ASGI entry point, complete
+end-user workflow UI, AI behavior, MCP interface, or production deployment yet. Phase 2 recommendation and
+synchronization capabilities are exposed as in-process application services for future interfaces.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part
@@ -245,9 +252,9 @@ uv run pre-commit run --all-files
 Application code uses the `src/media_recommender` package layout. Runtime dependencies are kept separate from the
 development tools declared in the `dev` dependency group.
 
-The Phase 1 stack uses Python 3.14, uv, Pydantic and pydantic-settings, HTTPX, SQLAlchemy 2.x with aiosqlite, Alembic,
-pytest, Ruff, Pyright, pydoclint, and pre-commit. FastAPI is reserved for a future public API and is not imported by the
-current application core.
+The current stack uses Python 3.14, uv, Pydantic and pydantic-settings, HTTPX, SQLAlchemy 2.x with aiosqlite,
+Alembic, FastAPI, Jinja2, pytest, Ruff, Pyright, pydoclint, and pre-commit. FastAPI and Jinja2 are confined to the
+outer Web interface layer and do not change the application core's provider-independent boundaries.
 
 ### Continuous integration
 
@@ -298,8 +305,9 @@ therefore expected to fail clearly when migrations have not been applied, rather
 
 ### Catalog application service
 
-`CatalogService` is the provider-independent entry point for catalog workflows used by future Web, REST, and MCP
-interfaces. It searches explicitly selected configured metadata providers, synchronizes normalized detail into the
+`CatalogService` is the provider-independent entry point for catalog workflows currently used by the REST interface,
+including `GET /api/v1/media/{media_id}`; future Web and MCP interfaces can reuse it. It searches explicitly selected
+configured metadata providers, synchronizes normalized detail into the
 catalog, and retrieves persisted media by internal or external identity. A refresh preserves the internal application
 identity while replacing catalog metadata with the provider's latest normalized detail; missing detail fields clear
 previously stored values instead of retaining stale metadata.
