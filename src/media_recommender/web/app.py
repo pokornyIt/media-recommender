@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from media_recommender.web.errors import register_exception_handlers
 from media_recommender.web.routes.api import router as api_router
+from media_recommender.web.routes.media import register_media_exception_handlers
 from media_recommender.web.routes.pages import router as page_router
 
 _WEB_ROOT = Path(__file__).parent
@@ -33,4 +34,5 @@ def create_app() -> FastAPI:
     app.include_router(page_router)
     app.state.templates = templates
     register_exception_handlers(app)
+    register_media_exception_handlers(app)
     return app
