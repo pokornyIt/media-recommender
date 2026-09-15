@@ -95,12 +95,12 @@ def test_openapi_includes_liveness_response_schema() -> None:
     }
 
 
-def test_business_router_uses_versioned_prefix_without_a_placeholder_route() -> None:
-    """Keep the reserved business API prefix free of temporary demonstration endpoints."""
+def test_business_router_uses_versioned_prefix_for_feature_routes() -> None:
+    """Keep business API routes beneath the shared versioned prefix."""
     paths = create_app().openapi()["paths"]
 
     assert api_router.prefix == "/api/v1"
-    assert not any(path.startswith("/api/v1/") for path in paths)
+    assert "/api/v1/media/{media_id}" in paths
 
 
 def test_framework_http_errors_keep_fastapi_semantics() -> None:

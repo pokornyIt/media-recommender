@@ -144,9 +144,11 @@ The HTTP/Web foundation uses FastAPI and server-rendered Jinja2 templates. Creat
 repositories, providers, or application services. Feature routes define their own FastAPI `Depends` dependencies;
 composition roots and tests can use the application's native `dependency_overrides` mapping.
 
-Versioned business API routes are reserved under `/api/v1`. `GET /health/live` is versionless and verifies only that
-the HTTP process can serve requests: it does not query the database or call providers. The shared page layout and
-static CSS form the responsive, accessible baseline for later server-rendered screens.
+Versioned business API routes are available under `/api/v1`. `GET /health/live` is versionless and verifies only that
+the HTTP process can serve requests: it does not query the database or call providers. `GET /api/v1/media/{media_id}`
+retrieves normalized shared catalog metadata through the injected `CatalogService`; it returns movie or TV-show facts,
+but never profile-owned state, streaming availability, library presence, provider transport data, or ORM records. The
+shared page layout and static CSS form the responsive, accessible baseline for later server-rendered screens.
 
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
 render ORM records and provider transport DTOs directly. API responses use a common JSON error envelope where an
