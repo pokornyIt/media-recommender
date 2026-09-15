@@ -172,13 +172,14 @@ will include CSRF tokens; this foundation intentionally does not yet generate, s
 
 ### MCP Integration
 
-Planned after Phase 1. The repository does not currently expose MCP tools.
+Planned; not implemented yet. The repository does not currently expose MCP tools.
 
 MCP is an interface to the application rather than the application core itself.
 
 ### Deployment and Operations
 
-Planned after Phase 1. Docker images, Docker Compose, health checks, and release packaging are not implemented yet.
+Planned; not implemented yet. Docker images, Docker Compose, health checks, and release packaging are not
+implemented yet.
 The intended deployment scope includes:
 
 * Docker images;
