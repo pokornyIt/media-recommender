@@ -26,6 +26,12 @@ FORBIDDEN_IMPORTS: Final = {
         "media_recommender.integrations",
     ),
 }
+WEB_FORBIDDEN_IMPORTS: Final = (
+    "media_recommender.persistence.models",
+    "media_recommender.integrations.jellyfin.models",
+    "media_recommender.integrations.netflix.models",
+    "media_recommender.integrations.tmdb.models",
+)
 
 
 def _module_imports(path: Path) -> set[str]:
@@ -50,5 +56,17 @@ def test_phase_one_layers_do_not_import_forbidden_dependencies() -> None:
                 for imported_module in sorted(_module_imports(path))
                 if imported_module.startswith(forbidden_prefixes)
             )
+
+    assert violations == []
+
+
+def test_web_layer_does_not_import_orm_records_or_provider_transport_dtos() -> None:
+    """Keep HTTP rendering and schemas independent from persistence and provider payloads."""
+    violations = [
+        f"{path.relative_to(PACKAGE_ROOT)} imports {imported_module}"
+        for path in sorted((PACKAGE_ROOT / "web").rglob("*.py"))
+        for imported_module in sorted(_module_imports(path))
+        if imported_module.startswith(WEB_FORBIDDEN_IMPORTS)
+    ]
 
     assert violations == []
