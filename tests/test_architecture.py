@@ -26,6 +26,10 @@ FORBIDDEN_IMPORTS: Final = {
         "media_recommender.integrations",
     ),
 }
+WEB_FORBIDDEN_IMPORTS: Final = (
+    "media_recommender.persistence",
+    "media_recommender.integrations",
+)
 
 
 def _module_imports(path: Path) -> set[str]:
@@ -50,5 +54,17 @@ def test_phase_one_layers_do_not_import_forbidden_dependencies() -> None:
                 for imported_module in sorted(_module_imports(path))
                 if imported_module.startswith(forbidden_prefixes)
             )
+
+    assert violations == []
+
+
+def test_web_layer_does_not_import_persistence_or_integrations() -> None:
+    """Keep the Web interface independent from persistence and integrations."""
+    violations = [
+        f"{path.relative_to(PACKAGE_ROOT)} imports {imported_module}"
+        for path in sorted((PACKAGE_ROOT / "web").rglob("*.py"))
+        for imported_module in sorted(_module_imports(path))
+        if imported_module.startswith(WEB_FORBIDDEN_IMPORTS)
+    ]
 
     assert violations == []

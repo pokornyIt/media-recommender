@@ -139,7 +139,24 @@ Structured filtering and recommendation logic should not depend on an AI provide
 
 ### Web Application
 
-Planned after Phase 1. The repository does not currently expose a Web UI or public REST API.
+The HTTP/Web foundation uses FastAPI and server-rendered Jinja2 templates. Create the base application with
+`media_recommender.web.create_app()`. The factory only initializes interface concerns and does not construct
+repositories, providers, or application services. Feature routes define their own FastAPI `Depends` dependencies;
+composition roots and tests can use the application's native `dependency_overrides` mapping.
+
+Versioned business API routes are reserved under `/api/v1`. `GET /health/live` is versionless and verifies only that
+the HTTP process can serve requests: it does not query the database or call providers. The shared page layout and
+static CSS form the responsive, accessible baseline for later server-rendered screens.
+
+Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
+render ORM records and provider transport DTOs directly. API responses use a common JSON error envelope where an
+interface handler owns the error. Framework HTTP and validation responses retain FastAPI/Starlette semantics, and
+future feature-specific handlers take precedence over the generic unexpected-error fallback.
+
+State-changing operations must never use `GET`. Safe and idempotent method semantics must be stated by each future
+endpoint. Browser-originated state-changing requests will use same-origin protection, and future server-rendered forms
+will include CSRF tokens; this foundation intentionally does not yet generate, store, or validate them. In contrast,
+`POST /api/v1/recommendations` performs read-only computation and is not state-changing.
 
 ### MCP Integration
 
