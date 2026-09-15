@@ -150,6 +150,10 @@ retrieves normalized shared catalog metadata through the injected `CatalogServic
 but never profile-owned state, streaming availability, library presence, provider transport data, or ORM records. The
 shared page layout and static CSS form the responsive, accessible baseline for later server-rendered screens.
 
+`POST /api/v1/recommendations` is a deterministic, non-AI, read-only computation API. It maps explicit JSON hard
+constraints to the injected Phase 2 recommendation facade and returns only ordered accepted ranked recommendations
+with factual structured explanations. It does not expose rejected candidates, filter decisions, or exclusions.
+
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
 render ORM records and provider transport DTOs directly. API responses use a common JSON error envelope where an
 interface handler owns the error. Framework HTTP and validation responses retain FastAPI/Starlette semantics, and

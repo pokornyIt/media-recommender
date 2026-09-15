@@ -12,6 +12,7 @@ from media_recommender.web.errors import register_exception_handlers
 from media_recommender.web.routes.api import router as api_router
 from media_recommender.web.routes.media import register_media_exception_handlers
 from media_recommender.web.routes.pages import router as page_router
+from media_recommender.web.routes.recommendations import register_recommendation_exception_handlers
 
 _WEB_ROOT = Path(__file__).parent
 _STATIC_DIRECTORY = _WEB_ROOT / "static"
@@ -35,4 +36,5 @@ def create_app() -> FastAPI:
     app.state.templates = templates
     register_exception_handlers(app)
     register_media_exception_handlers(app)
+    register_recommendation_exception_handlers(app)
     return app
