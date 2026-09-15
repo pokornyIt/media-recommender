@@ -81,8 +81,9 @@ events, ratings and reactions, preferences and exclusions, and external provider
 reference the shared catalog rather than duplicating media metadata. Source record and synchronization identities make
 later supported imports repeatable without treating a provider identity as the application user.
 
-The FastAPI HTTP boundary and server-rendered Web shell are implemented; provider configuration, synchronization,
-complete recommendation and media-detail screens, MCP, and deployment remain planned. Local Netflix Viewing Activity
+The FastAPI HTTP boundary and server-rendered Web shell are implemented; provider settings and configuration UI,
+import and synchronization UI or controls, complete recommendation and media-detail screens, MCP, and deployment
+remain planned. Local Netflix Viewing Activity
 and supported ratings CSV imports now flow through the shared identity resolver into
 profile-owned personal state. Jellyfin movie and series libraries can be synchronized through its supported API,
 including distinct library presence and per-user watched state. Regional streaming availability can be refreshed from
@@ -304,9 +305,9 @@ therefore expected to fail clearly when migrations have not been applied, rather
 
 ### Catalog application service
 
-`CatalogService` is the provider-independent entry point for catalog workflows used by Web and REST interfaces and a
-future MCP interface. It searches explicitly selected configured metadata providers, synchronizes normalized detail
-into the
+`CatalogService` is the provider-independent entry point for catalog workflows currently used by the REST interface,
+including `GET /api/v1/media/{media_id}`; future Web and MCP interfaces can reuse it. It searches explicitly selected
+configured metadata providers, synchronizes normalized detail into the
 catalog, and retrieves persisted media by internal or external identity. A refresh preserves the internal application
 identity while replacing catalog metadata with the provider's latest normalized detail; missing detail fields clear
 previously stored values instead of retaining stale metadata.
