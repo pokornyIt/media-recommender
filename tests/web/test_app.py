@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+from inspect import signature
 from typing import TYPE_CHECKING, cast
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from starlette.routing import Mount, Route
 
 from media_recommender.web import create_app
 from media_recommender.web.errors import register_exception_handlers
+from media_recommender.web.routes.api import router as api_router
+from media_recommender.web.routes.pages import get_templates
 
 if TYPE_CHECKING:
     from httpx import Client
@@ -27,33 +31,40 @@ def _client(app: FastAPI, *, raise_server_exceptions: bool = True) -> Client:
     return cast("Client", TestClient(app, raise_server_exceptions=raise_server_exceptions))
 
 
-def test_factory_creates_foundation_without_application_services() -> None:
-    """Create the HTTP foundation without configuring feature services."""
+def test_factory_is_parameterless_and_leaves_dependencies_for_feature_routes() -> None:
+    """Create the HTTP foundation without accepting or configuring feature services."""
     app = create_app()
 
+    assert signature(create_app).parameters == {}
     assert app.dependency_overrides == {}
     paths = {route.path for route in app.routes if isinstance(route, (Mount, Route))}
     assert paths >= {"/", "/health/live", "/static"}
 
 
-def test_liveness_uses_only_the_http_process() -> None:
-    """Return liveness without resolving an unrelated overridden dependency."""
+def test_dependency_overrides_replace_a_route_dependency() -> None:
+    """Use FastAPI's native overrides to replace the home-page template dependency."""
     app = create_app()
     calls = 0
 
-    def unused_dependency() -> object:
-        """Record any accidental dependency resolution."""
+    def overridden_templates(request: Request) -> object:
+        """Record FastAPI resolving the native template dependency override."""
         nonlocal calls
         calls += 1
-        return object()
+        return request.app.state.templates
 
-    app.dependency_overrides[unused_dependency] = unused_dependency
+    app.dependency_overrides[get_templates] = overridden_templates
 
-    response = _client(app).get("/health/live")
+    response = _client(app).get("/")
 
     assert response.status_code == HTTPStatus.OK
-    assert response.json() == {"status": "ok"}
-    assert calls == 0
+    assert calls == 1
+
+
+def test_liveness_has_no_declared_dependencies() -> None:
+    """Keep liveness isolated from templates, application services, and providers."""
+    route = next(route for route in create_app().routes if isinstance(route, APIRoute) and route.path == "/health/live")
+
+    assert route.dependant.dependencies == []
 
 
 def test_home_uses_shared_accessible_layout_and_static_css() -> None:
@@ -84,10 +95,11 @@ def test_openapi_includes_liveness_response_schema() -> None:
     }
 
 
-def test_empty_business_router_has_versioned_prefix_without_a_placeholder_route() -> None:
+def test_business_router_uses_versioned_prefix_without_a_placeholder_route() -> None:
     """Keep the reserved business API prefix free of temporary demonstration endpoints."""
     paths = create_app().openapi()["paths"]
 
+    assert api_router.prefix == "/api/v1"
     assert not any(path.startswith("/api/v1/") for path in paths)
 
 

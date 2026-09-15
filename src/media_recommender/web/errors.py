@@ -6,26 +6,14 @@ from typing import TYPE_CHECKING
 
 from fastapi import Request  # noqa: TC002 - FastAPI resolves this special parameter annotation at runtime.
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+
+from media_recommender.web.schemas.errors import ErrorDetail, ErrorResponse
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from fastapi import FastAPI
     from starlette.types import ExceptionHandler
-
-
-class ErrorDetail(BaseModel):
-    """A stable public description of one HTTP error."""
-
-    code: str
-    message: str
-
-
-class ErrorResponse(BaseModel):
-    """Common JSON envelope for errors handled by this interface layer."""
-
-    error: ErrorDetail
 
 
 def register_exception_handlers(

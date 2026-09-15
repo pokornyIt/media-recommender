@@ -1,19 +1,14 @@
 """Server-rendered page and operational routes."""
 
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates  # noqa: TC002 - FastAPI resolves this dependency annotation at runtime.
-from pydantic import BaseModel
+
+from media_recommender.web.schemas.health import LivenessResponse
 
 router = APIRouter()
-
-
-class LivenessResponse(BaseModel):
-    """Response proving only that the HTTP process can serve a request."""
-
-    status: Literal["ok"]
 
 
 def get_templates(request: Request) -> Jinja2Templates:
