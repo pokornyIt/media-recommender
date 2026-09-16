@@ -37,6 +37,20 @@ Follow these principles unless an issue explicitly requires otherwise:
 * Multi-user profile management and authentication are future concerns; do not introduce unused authentication
   complexity before it is required.
 
+## Product scope and design priorities
+
+* This is a small self-hosted application for one household.
+* Prefer the smallest maintainable solution that serves a demonstrated family use case.
+* Do not introduce multi-tenancy, accounts or roles, generic configuration frameworks, plugin systems, background
+  infrastructure, or broad extensibility layers unless an approved issue explicitly requires them.
+* Keep deployment and operational configuration in environment/runtime settings unless a recurring end-user workflow
+  clearly requires a UI.
+* Do not add persisted secret management, encryption-key lifecycle, or configuration migration machinery without an
+  explicitly approved product need.
+* Security and privacy requirements still apply; simplifying scope must not expose credentials, personal viewing data,
+  or unsafe state-changing behavior.
+* When planning, state the simplest viable option before proposing a more general design.
+
 Avoid duplicating business logic across interfaces or integrations.
 
 ## Development approach
