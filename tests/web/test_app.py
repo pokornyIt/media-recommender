@@ -6,7 +6,7 @@ from http import HTTPStatus
 from inspect import signature
 from typing import TYPE_CHECKING, cast
 
-import pytest  # noqa: TC002 - Pytest resolves this fixture annotation at runtime.
+import pytest
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -123,6 +123,38 @@ def test_settings_shows_configured_status_without_exposing_runtime_values(monkey
     assert response.text.count("Configured") == _PROVIDER_COUNT
     assert "US" in response.text
     for value in (tmdb_value, jellyfin_url, jellyfin_value, jellyfin_user_id):
+        assert value not in response.text
+
+
+@pytest.mark.parametrize(
+    ("invalid_http_setting", "expected_status"),
+    [
+        ("MEDIA_RECOMMENDER_TMDB_HTTP__CONNECT_TIMEOUT_SECONDS", "TMDB"),
+        ("MEDIA_RECOMMENDER_JELLYFIN_HTTP__CONNECT_TIMEOUT_SECONDS", "Jellyfin"),
+    ],
+)
+def test_settings_treats_malformed_nested_provider_http_configuration_as_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_http_setting: str,
+    expected_status: str,
+) -> None:
+    """Keep settings available when a provider's nested HTTP configuration is malformed."""
+    tmdb_value = "synthetic-tmdb-value"
+    jellyfin_url = "https://jellyfin.synthetic.invalid/"
+    jellyfin_value = "synthetic-jellyfin-value"
+    jellyfin_user_id = "synthetic-user"
+    malformed_value = "not-a-number"
+    monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", tmdb_value)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", jellyfin_url)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", jellyfin_value)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", jellyfin_user_id)
+    monkeypatch.setenv(invalid_http_setting, malformed_value)
+
+    response = _client(create_app()).get("/settings")
+
+    assert response.status_code == HTTPStatus.OK
+    assert f"<dt>{expected_status}</dt>\n  <dd>Not configured</dd>" in response.text
+    for value in (tmdb_value, jellyfin_url, jellyfin_value, jellyfin_user_id, malformed_value):
         assert value not in response.text
 
 

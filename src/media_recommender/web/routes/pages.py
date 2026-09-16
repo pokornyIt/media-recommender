@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates  # noqa: TC002 - FastAPI resolves this dependency annotation at runtime.
 from pydantic import ValidationError
+from pydantic_settings import SettingsError
 
 from media_recommender.config import JellyfinSettings, Settings, TmdbSettings
 from media_recommender.web.schemas.health import LivenessResponse
@@ -39,7 +40,7 @@ def _is_tmdb_configured() -> bool:
     """
     try:
         TmdbSettings()  # pyright: ignore[reportCallIssue] - BaseSettings supplies required values from env.
-    except ValidationError:
+    except SettingsError, ValidationError:
         return False
     return True
 
@@ -51,7 +52,7 @@ def _is_jellyfin_configured() -> bool:
     """
     try:
         JellyfinSettings()  # pyright: ignore[reportCallIssue] - BaseSettings supplies required values from env.
-    except ValidationError:
+    except SettingsError, ValidationError:
         return False
     return True
 
