@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Settings · Media Recommender{% endblock %}
+
+{% block content %}
+<h1>Settings</h1>
+<p>Provider status reflects configuration only; it does not verify provider connectivity.</p>
+<dl>
+  <dt>TMDB</dt>
+  <dd>{{ "Configured" if settings.tmdb_configured else "Not configured" }}</dd>
+  <dt>Jellyfin</dt>
+  <dd>{{ "Configured" if settings.jellyfin_configured else "Not configured" }}</dd>
+  <dt>Default region</dt>
+  <dd>{{ settings.default_region }}</dd>
+</dl>
+{% endblock %}
