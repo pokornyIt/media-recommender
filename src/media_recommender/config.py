@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MEDIA_RECOMMENDER_", frozen=True)
 
     database_path: Path = Path("data/media-recommender.db")
+    default_region: str = Field(default="CZ", pattern=r"^[A-Z]{2}$")
 
     @field_validator("database_path", mode="before")
     @classmethod

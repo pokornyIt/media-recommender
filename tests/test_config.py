@@ -32,6 +32,13 @@ def test_database_path_rejects_empty_environment_value(monkeypatch: pytest.Monke
         Settings()
 
 
+def test_default_region_can_be_loaded_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify the configured default region is available at runtime."""
+    monkeypatch.setenv("MEDIA_RECOMMENDER_DEFAULT_REGION", "US")
+
+    assert Settings().default_region == "US"
+
+
 def test_provider_settings_mask_api_token() -> None:
     """Verify provider credentials do not appear in normal representations."""
     settings = ProviderSettings.model_validate(

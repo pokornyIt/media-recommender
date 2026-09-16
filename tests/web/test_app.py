@@ -6,6 +6,7 @@ from http import HTTPStatus
 from inspect import signature
 from typing import TYPE_CHECKING, cast
 
+import pytest  # noqa: TC002 - Pytest resolves this fixture annotation at runtime.
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -19,6 +20,9 @@ from media_recommender.web.routes.pages import get_templates
 
 if TYPE_CHECKING:
     from httpx import Client
+
+
+_PROVIDER_COUNT = 2
 
 
 def _client(app: FastAPI, *, raise_server_exceptions: bool = True) -> Client:
@@ -83,6 +87,43 @@ def test_home_uses_shared_accessible_layout_and_static_css() -> None:
     css_response = client.get("/static/styles.css")
     assert css_response.status_code == HTTPStatus.OK
     assert "@media" in css_response.text
+
+
+def test_settings_shows_safe_unconfigured_status_and_default_region(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Render the offline settings page without revealing missing provider configuration."""
+    monkeypatch.delenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", raising=False)
+    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", raising=False)
+    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", raising=False)
+    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", raising=False)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_DEFAULT_REGION", "CZ")
+
+    response = _client(create_app()).get("/settings")
+
+    assert response.status_code == HTTPStatus.OK
+    assert 'href="http://testserver/settings">Settings</a>' in response.text
+    assert response.text.count("Not configured") == _PROVIDER_COUNT
+    assert "CZ" in response.text
+
+
+def test_settings_shows_configured_status_without_exposing_runtime_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Render only provider status and region for complete synthetic configuration."""
+    tmdb_value = "synthetic-tmdb-value"
+    jellyfin_url = "https://jellyfin.synthetic.invalid/"
+    jellyfin_value = "synthetic-jellyfin-value"
+    jellyfin_user_id = "synthetic-user"
+    monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", tmdb_value)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", jellyfin_url)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", jellyfin_value)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", jellyfin_user_id)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_DEFAULT_REGION", "US")
+
+    response = _client(create_app()).get("/settings")
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.text.count("Configured") == _PROVIDER_COUNT
+    assert "US" in response.text
+    for value in (tmdb_value, jellyfin_url, jellyfin_value, jellyfin_user_id):
+        assert value not in response.text
 
 
 def test_openapi_includes_liveness_response_schema() -> None:
