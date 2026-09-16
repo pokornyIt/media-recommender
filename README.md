@@ -6,6 +6,10 @@ ratings, preferences, media metadata, streaming availability, and local media li
 The project is designed to work as a standalone web application while exposing the same underlying capabilities
 through an API and MCP.
 
+Media Recommender is intentionally a small self-hosted application for one household. It is not a multi-tenant SaaS
+product or a generic media-management platform; future design decisions should favor the smallest maintainable
+solution for demonstrated household use cases.
+
 ## Goals
 
 Media Recommender should help answer questions such as:
