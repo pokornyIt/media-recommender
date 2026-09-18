@@ -258,6 +258,22 @@ class Phase2Orchestrator:
             reports.append(await self._refresh_availability(request.availability))
         return Phase2SynchronizationResult(tuple(reports))
 
+    async def import_netflix_viewing(self, path: Path, *, external_profile_id: str) -> WorkflowReport:
+        """Import one Netflix viewing-activity file without running other sources.
+
+        This narrow entry point lets interfaces perform a Netflix-only import
+        without triggering library synchronization or availability refresh.
+
+        :param path: Private local CSV path.
+        :param external_profile_id: Stable caller-supplied Netflix profile label.
+        :return: Normalized Netflix viewing-activity report.
+        """
+        request = Phase2SynchronizationRequest(
+            netflix_profile=external_profile_id,
+            netflix_viewing_path=path,
+        )
+        return await self._import_netflix_viewing(request)
+
     async def recommend(self, criteria: RecommendationCriteria) -> RecommendationResult:
         """Recommend for the implicit default profile.
 

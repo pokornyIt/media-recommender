@@ -160,19 +160,26 @@ shared page layout and static CSS form the responsive, accessible baseline for l
 constraints to the injected Phase 2 recommendation facade and returns only ordered accepted ranked recommendations
 with factual structured explanations. It does not expose rejected candidates, filter decisions, or exclusions.
 
-The implemented server-rendered UI is currently limited to the shared application shell and home page. Provider
-configuration, import and synchronization controls, recommendation results, and media-detail and personal-state
-screens remain future Web work.
+`GET /imports/netflix` renders an accessible multipart form for one Netflix Viewing Activity CSV and a stable profile
+label. `POST /imports/netflix` validates the CSRF token, filename, content type, header, and streamed size before
+staging the upload in a short-lived private temporary file and delegating to the Netflix-only application facade. The
+page renders aggregate counts only and never persists or renders the upload, filename, or profile label. The default
+maximum upload size is 10 MiB and can be changed with `MEDIA_RECOMMENDER_NETFLIX_UPLOAD_MAX_BYTES`.
+
+The implemented server-rendered UI includes the shared application shell, home page, read-only provider status page,
+and the Netflix Viewing Activity import page. Provider configuration, Jellyfin synchronization controls,
+recommendation results, and media-detail and personal-state screens remain future Web work.
 
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
 render ORM records and provider transport DTOs directly. API responses use a common JSON error envelope where an
 interface handler owns the error. Framework HTTP and validation responses retain FastAPI/Starlette semantics, and
 future feature-specific handlers take precedence over the generic unexpected-error fallback.
 
-State-changing operations must never use `GET`. Safe and idempotent method semantics must be stated by each future
-endpoint. Browser-originated state-changing requests will use same-origin protection, and future server-rendered forms
-will include CSRF tokens; this foundation intentionally does not yet generate, store, or validate them. In contrast,
-`POST /api/v1/recommendations` performs read-only computation and is not state-changing.
+State-changing operations must never use `GET`. Safe and idempotent method semantics must be stated by each endpoint.
+Browser-originated state-changing requests use same-origin protection: server-rendered forms include a session-bound
+CSRF token, and an exact `Origin` check rejects cross-origin submissions. The session cookie is `HttpOnly` and
+`SameSite=Lax`; set `MEDIA_RECOMMENDER_WEB_SESSION_SECRET` in production so signed sessions survive restarts. In
+contrast, `POST /api/v1/recommendations` performs read-only computation and is not state-changing.
 
 ### MCP Integration
 

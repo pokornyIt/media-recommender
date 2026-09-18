@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Netflix import · Media Recommender{% endblock %}
+
+{% block errors %}
+{% if result and result.outcome.value == "invalid_request" %}
+<p>Request rejected. Provide a non-blank profile label and a supported Netflix Viewing Activity CSV within the size limit.</p>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<h1>Netflix import</h1>
+<p>
+  Upload one Netflix Viewing Activity CSV export. The file is used only for this request and is not stored.
+  Do not upload files you do not want processed.
+</p>
+<form method="post" action="{{ url_for('submit_netflix_import') }}" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <p>
+    <label for="netflix-profile-label">Netflix profile label</label>
+    <input id="netflix-profile-label" name="profile_label" type="text" required autocomplete="off">
+  </p>
+  <p>
+    <label for="netflix-viewing-activity">Viewing Activity CSV</label>
+    <input id="netflix-viewing-activity" name="upload" type="file" accept=".csv,text/csv" required>
+  </p>
+  <button type="submit">Import viewing activity</button>
+</form>
+{% if result and result.outcome.value != "invalid_request" %}
+<section aria-labelledby="import-result">
+  <h2 id="import-result">Import result</h2>
+  {% if result.outcome.value == "success" %}
+  <p>Import complete.</p>
+  {% elif result.outcome.value == "repeat" %}
+  <p>These records were already imported; no new viewing events were added.</p>
+  {% elif result.outcome.value == "partial" %}
+  <p>Import completed with rows that were not imported. Unresolved, ambiguous, and invalid rows were not silently imported.</p>
+  {% elif result.outcome.value == "failed" %}
+  <p>The import could not be completed. Try again later.</p>
+  {% endif %}
+  {% if result.outcome.value != "failed" %}
+  <dl>
+    <dt>Imported</dt>
+    <dd>{{ result.imported }}</dd>
+    <dt>Already imported</dt>
+    <dd>{{ result.skipped }}</dd>
+    <dt>Unresolved</dt>
+    <dd>{{ result.unresolved }}</dd>
+    <dt>Ambiguous</dt>
+    <dd>{{ result.ambiguous }}</dd>
+    <dt>Invalid</dt>
+    <dd>{{ result.invalid }}</dd>
+  </dl>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

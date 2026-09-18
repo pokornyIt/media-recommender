@@ -15,14 +15,20 @@ from media_recommender.application import (
     AvailabilityCriterion,
     AvailabilityOffer,
     AvailabilityRefreshRequest,
+    AvailabilityRefreshResult,
     AvailabilityRefreshService,
     AvailabilitySourceKind,
+    ImportRecordResult,
+    ImportRecordStatus,
+    LibrarySynchronizationResult,
     MediaIdentityCandidate,
     MediaIdentityResolver,
+    PersonalImportResult,
     Phase2Orchestrator,
     Phase2SynchronizationRequest,
     ProductionRegion,
     RecommendationCriteria,
+    RecommendationResult,
     RecommendationService,
     WatchRequirement,
     WorkflowItemStatus,
@@ -45,6 +51,8 @@ from media_recommender.domain import (
     PreferenceEffect,
     PreferenceId,
     PreferenceKind,
+    Profile,
+    ProfileId,
     Runtime,
     StreamingService,
 )
@@ -401,3 +409,126 @@ def test_phase2_workflow_is_offline_repeatable_and_failure_isolated(tmp_path: Pa
     command.upgrade(config, PHASE_ONE_REVISION)
     command.upgrade(config, "head")
     asyncio.run(_exercise_phase2_workflow(database_path, tmp_path))
+
+
+class _RecordingNetflixWorkflow:
+    """Record Netflix-only facade calls and return a synthetic result."""
+
+    def __init__(self, result: PersonalImportResult) -> None:
+        """Store the synthetic import result.
+
+        :param result: Result returned by the viewing-activity import.
+        """
+        self._result = result
+        self.calls: list[tuple[Path, str]] = []
+
+    async def import_viewing_activity(self, path: Path, *, external_profile_id: str) -> PersonalImportResult:
+        """Record one viewing-activity import call.
+
+        :param path: Staged private CSV path.
+        :param external_profile_id: Requested Netflix profile label.
+        :return: Configured synthetic result.
+        """
+        self.calls.append((path, external_profile_id))
+        return self._result
+
+    async def import_ratings(self, path: Path, *, external_profile_id: str) -> PersonalImportResult:
+        """Fail if the ratings import is invoked.
+
+        :param path: Staged private CSV path.
+        :param external_profile_id: Requested Netflix profile label.
+        :raises AssertionError: Always, because ratings are out of scope.
+        """
+        del path, external_profile_id
+        raise AssertionError
+
+
+class _ForbiddenProfiles:
+    """Fail if profile persistence is invoked."""
+
+    async def get_or_create_default(self) -> Profile:
+        """Fail if the default profile is requested.
+
+        :raises AssertionError: Always, because the Netflix-only facade must not touch profiles.
+        """
+        raise AssertionError
+
+    async def get_profile(self, profile_id: ProfileId) -> Profile | None:
+        """Fail if a profile is requested.
+
+        :param profile_id: Requested internal profile identity.
+        :raises AssertionError: Always, because the Netflix-only facade must not touch profiles.
+        """
+        del profile_id
+        raise AssertionError
+
+    async def save_profile(self, profile: Profile) -> None:
+        """Fail if a profile is saved.
+
+        :param profile: Profile that would be persisted.
+        :raises AssertionError: Always, because the Netflix-only facade must not touch profiles.
+        """
+        del profile
+        raise AssertionError
+
+
+class _ForbiddenLibrary:
+    """Fail if library synchronization is invoked."""
+
+    async def synchronize(self) -> LibrarySynchronizationResult:
+        """Fail if library synchronization is invoked.
+
+        :raises AssertionError: Always, because the Netflix-only facade must not synchronize.
+        """
+        raise AssertionError
+
+
+class _ForbiddenAvailability:
+    """Fail if availability refresh is invoked."""
+
+    async def refresh(self, candidate: MediaIdentityCandidate, region: str) -> AvailabilityRefreshResult:
+        """Fail if availability refresh is invoked.
+
+        :param candidate: Identity evidence that would be refreshed.
+        :param region: Region that would be refreshed.
+        :raises AssertionError: Always, because the Netflix-only facade must not refresh availability.
+        """
+        del candidate, region
+        raise AssertionError
+
+
+class _ForbiddenRecommendations:
+    """Fail if recommendation is invoked."""
+
+    async def recommend(self, profile_id: ProfileId, criteria: RecommendationCriteria) -> RecommendationResult:
+        """Fail if recommendation is invoked.
+
+        :param profile_id: Profile that would be recommended for.
+        :param criteria: Criteria that would be applied.
+        :raises AssertionError: Always, because the Netflix-only facade must not recommend.
+        """
+        del profile_id, criteria
+        raise AssertionError
+
+
+def test_netflix_only_facade_imports_viewing_without_other_sources(tmp_path: Path) -> None:
+    """Verify the narrow facade runs only the Netflix viewing import."""
+    source = tmp_path / "synthetic-viewing.csv"
+    source.write_text("Title,Date\nSynthetic Title,9/14/26\n", encoding="utf-8")
+    netflix = _RecordingNetflixWorkflow(
+        PersonalImportResult(records=(ImportRecordResult(2, ImportRecordStatus.IMPORTED),))
+    )
+    orchestrator = Phase2Orchestrator(
+        _ForbiddenProfiles(),
+        netflix,
+        _ForbiddenLibrary(),
+        _ForbiddenAvailability(),
+        _ForbiddenRecommendations(),
+    )
+
+    report = asyncio.run(orchestrator.import_netflix_viewing(source, external_profile_id="Synthetic profile"))
+
+    assert report.kind is WorkflowKind.NETFLIX_VIEWING
+    assert report.status is WorkflowStatus.SUCCESS
+    assert report.counts.succeeded == 1
+    assert netflix.calls == [(source, "Synthetic profile")]
