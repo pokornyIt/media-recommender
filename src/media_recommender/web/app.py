@@ -7,9 +7,14 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
+from media_recommender.config import Settings
 from media_recommender.web.errors import register_exception_handlers
+from media_recommender.web.middleware import RequestBodyLimitMiddleware
 from media_recommender.web.routes.api import router as api_router
+from media_recommender.web.routes.imports import NETFLIX_IMPORT_PATH, register_import_exception_handlers
+from media_recommender.web.routes.imports import router as import_router
 from media_recommender.web.routes.media import register_media_exception_handlers
 from media_recommender.web.routes.pages import router as page_router
 from media_recommender.web.routes.recommendations import register_recommendation_exception_handlers
@@ -17,6 +22,7 @@ from media_recommender.web.routes.recommendations import register_recommendation
 _WEB_ROOT = Path(__file__).parent
 _STATIC_DIRECTORY = _WEB_ROOT / "static"
 _TEMPLATES_DIRECTORY = _WEB_ROOT / "templates"
+_SESSION_COOKIE_NAME = "media_recommender_session"
 
 
 def create_app() -> FastAPI:
@@ -29,12 +35,27 @@ def create_app() -> FastAPI:
     :return: Configured HTTP application foundation.
     """
     app = FastAPI(title="Media Recommender")
+    settings = Settings()
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.web_session_secret.get_secret_value(),
+        session_cookie=_SESSION_COOKIE_NAME,
+        same_site="lax",
+        https_only=False,
+    )
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        path=NETFLIX_IMPORT_PATH,
+        max_bytes=settings.netflix_upload_max_bytes,
+    )
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIRECTORY))
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIRECTORY)), name="static")
     app.include_router(api_router)
     app.include_router(page_router)
+    app.include_router(import_router)
     app.state.templates = templates
     register_exception_handlers(app)
     register_media_exception_handlers(app)
     register_recommendation_exception_handlers(app)
+    register_import_exception_handlers(app)
     return app

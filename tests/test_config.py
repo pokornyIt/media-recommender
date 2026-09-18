@@ -39,6 +39,27 @@ def test_default_region_can_be_loaded_from_environment(monkeypatch: pytest.Monke
     assert Settings().default_region == "US"
 
 
+def test_web_session_secret_defaults_to_a_non_empty_value() -> None:
+    """Verify a non-empty session secret is always available at runtime."""
+    assert Settings().web_session_secret.get_secret_value()
+
+
+def test_web_session_secret_rejects_blank_environment_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify a blank session secret cannot silently disable session signing."""
+    monkeypatch.setenv("MEDIA_RECOMMENDER_WEB_SESSION_SECRET", " ")
+
+    with pytest.raises(ValidationError, match="Web session secret must not be blank"):
+        Settings()
+
+
+def test_netflix_upload_max_bytes_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify the Netflix upload limit cannot be configured as zero or negative."""
+    monkeypatch.setenv("MEDIA_RECOMMENDER_NETFLIX_UPLOAD_MAX_BYTES", "0")
+
+    with pytest.raises(ValidationError):
+        Settings()
+
+
 def test_provider_settings_mask_api_token() -> None:
     """Verify provider credentials do not appear in normal representations."""
     settings = ProviderSettings.model_validate(

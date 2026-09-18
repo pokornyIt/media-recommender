@@ -1,11 +1,14 @@
 """Validated application configuration."""
 
+import secrets
 from pathlib import Path
 from typing import Self
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
+
+DEFAULT_NETFLIX_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 
 
 class Settings(BaseSettings):
@@ -15,6 +18,8 @@ class Settings(BaseSettings):
 
     database_path: Path = Path("data/media-recommender.db")
     default_region: str = Field(default="CZ", pattern=r"^[A-Z]{2}$")
+    netflix_upload_max_bytes: int = Field(default=DEFAULT_NETFLIX_UPLOAD_MAX_BYTES, gt=0)
+    web_session_secret: SecretStr = Field(default_factory=lambda: SecretStr(secrets.token_urlsafe(32)))
 
     @field_validator("database_path", mode="before")
     @classmethod
@@ -27,6 +32,24 @@ class Settings(BaseSettings):
         """
         if isinstance(value, str) and not value.strip():
             msg = "Database path must not be empty"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("web_session_secret", mode="before")
+    @classmethod
+    def validate_web_session_secret(cls, value: object) -> object:
+        """Reject a blank session-signing secret before ``SecretStr`` coercion.
+
+        A random per-process secret is generated when none is configured, so the
+        value is always non-empty at runtime. Production deployments should set
+        ``MEDIA_RECOMMENDER_WEB_SESSION_SECRET`` explicitly.
+
+        :param value: Raw configured secret value.
+        :return: Unmodified non-blank secret value.
+        :raises ValueError: If the configured secret is blank.
+        """
+        if isinstance(value, str) and not value.strip():
+            msg = "Web session secret must not be blank"
             raise ValueError(msg)
         return value
 
