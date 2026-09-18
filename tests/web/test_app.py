@@ -82,6 +82,7 @@ def test_home_uses_shared_accessible_layout_and_static_css() -> None:
     assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in response.text
     assert '<nav aria-label="Primary navigation">' in response.text
     assert '<main id="main-content" tabindex="-1">' in response.text
+    assert 'href="http://testserver/providers/status">Provider status</a>' in response.text
     assert 'aria-live="polite"' in response.text
     assert "Media Recommender" in response.text
     css_response = client.get("/static/styles.css")

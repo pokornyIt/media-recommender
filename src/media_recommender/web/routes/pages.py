@@ -1,5 +1,6 @@
 """Server-rendered page and operational routes."""
 
+from collections.abc import Sequence  # noqa: TC003 - resolved at runtime by FastAPI dependency wiring.
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -9,6 +10,11 @@ from fastapi.templating import Jinja2Templates  # noqa: TC002 - FastAPI resolves
 from pydantic import ValidationError
 from pydantic_settings import SettingsError
 
+from media_recommender.application.provider_status import (
+    DefaultProviderStatusReader,
+    ProviderStatus,
+    ProviderStatusReader,
+)
 from media_recommender.config import JellyfinSettings, Settings, TmdbSettings
 from media_recommender.web.schemas.health import LivenessResponse
 
@@ -70,6 +76,18 @@ def get_settings_page_context() -> SettingsPageContext:
     )
 
 
+def get_provider_statuses() -> Sequence[ProviderStatus]:
+    """Resolve provider status through the typed application-layer contract.
+
+    The default reader performs no provider calls; tests may replace it via
+    FastAPI dependency overrides.
+
+    :return: Safe provider status snapshots in a stable order.
+    """
+    reader: ProviderStatusReader = DefaultProviderStatusReader()
+    return reader.read_provider_statuses()
+
+
 @router.get("/", response_class=HTMLResponse)
 async def home(
     request: Request,
@@ -98,6 +116,22 @@ async def settings(
     :return: Shared-layout settings page.
     """
     return templates.TemplateResponse(request, "settings.html", {"settings": context})
+
+
+@router.get("/providers/status", response_class=HTMLResponse)
+async def provider_status(
+    request: Request,
+    templates: Annotated[Jinja2Templates, Depends(get_templates)],
+    statuses: Annotated[Sequence[ProviderStatus], Depends(get_provider_statuses)],
+) -> HTMLResponse:
+    """Render the read-only provider status page without contacting providers.
+
+    :param request: Incoming browser request.
+    :param templates: Shared Jinja2 template renderer.
+    :param statuses: Safe provider status snapshots from the application contract.
+    :return: Shared-layout provider status page.
+    """
+    return templates.TemplateResponse(request, "provider_status.html", {"statuses": statuses})
 
 
 @router.get("/health/live", response_model=LivenessResponse)
