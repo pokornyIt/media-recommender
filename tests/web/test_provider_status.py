@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, cast
@@ -135,23 +136,31 @@ def test_provider_status_page_renders_failure_states_distinctly() -> None:
     assert "Success" not in response.text
 
 
-def test_default_request_path_does_not_leak_synthetic_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Serve the default page with synthetic secrets configured and render none of them."""
+def test_default_request_path_does_not_leak_synthetic_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Serve the default page with synthetic secrets configured and leak none of them."""
     _clear_provider_environment(monkeypatch)
     monkeypatch.setenv(_TMDB_TOKEN_ENV, "synthetic-tmdb-value")
     monkeypatch.setenv(_JELLYFIN_BASE_URL_ENV, "https://jellyfin.synthetic.invalid/")
     monkeypatch.setenv(_JELLYFIN_TOKEN_ENV, "synthetic-jellyfin-value")
     monkeypatch.setenv(_JELLYFIN_USER_ID_ENV, "synthetic-user")
 
-    response = cast("Client", TestClient(create_app())).get("/providers/status")
+    with caplog.at_level(logging.DEBUG):
+        response = cast("Client", TestClient(create_app())).get("/providers/status")
 
     assert response.status_code == HTTPStatus.OK
     assert response.text.count("Configured") == _PROVIDER_COUNT
     for value in _SYNTHETIC_SECRETS:
         assert value not in response.text
+        assert value not in caplog.text
 
 
-def test_default_request_path_renders_malformed_configuration_without_details(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_default_request_path_renders_malformed_configuration_without_details(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Surface malformed configuration as configuration_error without leaking values."""
     _clear_provider_environment(monkeypatch)
     monkeypatch.setenv(_JELLYFIN_BASE_URL_ENV, "https://jellyfin.synthetic.invalid/")
@@ -160,12 +169,29 @@ def test_default_request_path_renders_malformed_configuration_without_details(mo
     monkeypatch.setenv(_TMDB_TOKEN_ENV, "synthetic-tmdb-value")
     monkeypatch.setenv(_TMDB_HTTP_TIMEOUT_ENV, "not-a-number")
 
-    response = cast("Client", TestClient(create_app())).get("/providers/status")
+    with caplog.at_level(logging.DEBUG):
+        response = cast("Client", TestClient(create_app())).get("/providers/status")
 
     assert response.status_code == HTTPStatus.OK
     assert "Last known operation: Configuration error" in response.text
     for value in (*_SYNTHETIC_SECRETS, "not-a-number", "synthetic-tmdb-value"):
         assert value not in response.text
+        assert value not in caplog.text
+
+
+def test_default_request_path_reports_partial_configuration_as_configuration_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Render incomplete but partially present configuration as the error state."""
+    _clear_provider_environment(monkeypatch)
+    monkeypatch.setenv(_JELLYFIN_BASE_URL_ENV, "https://jellyfin.synthetic.invalid/")
+
+    response = cast("Client", TestClient(create_app())).get("/providers/status")
+
+    assert response.status_code == HTTPStatus.OK
+    assert "Last known operation: Configuration error" in response.text
+    assert "https://jellyfin.synthetic.invalid/" not in response.text
+    assert "No recorded operation" in response.text
 
 
 def test_default_request_path_reports_absent_configuration_as_neutral(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, tzinfo
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
@@ -20,6 +20,34 @@ _TMDB_HTTP_TIMEOUT_ENV = "MEDIA_RECOMMENDER_TMDB_HTTP__CONNECT_TIMEOUT_SECONDS"
 _JELLYFIN_BASE_URL_ENV = "MEDIA_RECOMMENDER_JELLYFIN_BASE_URL"
 _JELLYFIN_TOKEN_ENV = "MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN"  # noqa: S105 - environment variable name, not a secret.
 _JELLYFIN_USER_ID_ENV = "MEDIA_RECOMMENDER_JELLYFIN_USER_ID"
+
+
+class _OffsetlessTimezone(tzinfo):
+    """Deliberately broken timezone whose ``utcoffset()`` returns ``None``."""
+
+    def utcoffset(self, dt: datetime | None) -> timedelta | None:  # noqa: ARG002 - required by the tzinfo interface.
+        """Return no offset to simulate a degenerate tzinfo.
+
+        :param dt: Datetime argument (unused).
+        :return: ``None``.
+        """
+        return None
+
+    def dst(self, dt: datetime | None) -> timedelta | None:  # noqa: ARG002 - required by the tzinfo interface.
+        """Return no daylight-saving offset.
+
+        :param dt: Datetime argument (unused).
+        :return: ``None``.
+        """
+        return None
+
+    def tzname(self, dt: datetime | None) -> str | None:  # noqa: ARG002 - required by the tzinfo interface.
+        """Return no zone name.
+
+        :param dt: Datetime argument (unused).
+        :return: ``None``.
+        """
+        return None
 
 
 def _clear_provider_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -67,6 +95,17 @@ def test_provider_status_rejects_naive_timestamp() -> None:
             configuration=ConfigurationState.CONFIGURED,
             operational=OperationalState.SUCCESS,
             observed_at=datetime(2026, 9, 18, 12, 0),  # noqa: DTZ001 - naive on purpose for the regression test.
+        )
+
+
+def test_provider_status_rejects_tzinfo_without_utc_offset() -> None:
+    """Reject timestamps whose tzinfo supplies no actual UTC offset."""
+    with pytest.raises(PydanticValidationError, match="timezone-aware"):
+        ProviderStatus(
+            provider=ProviderKind.TMDB,
+            configuration=ConfigurationState.CONFIGURED,
+            operational=OperationalState.SUCCESS,
+            observed_at=datetime(2026, 9, 18, 12, 0, tzinfo=_OffsetlessTimezone()),
         )
 
 
@@ -158,6 +197,20 @@ def test_default_reader_reports_valid_configuration_as_configured(monkeypatch: p
         assert status.configuration is ConfigurationState.CONFIGURED
         assert status.operational is OperationalState.NO_RECORDED_OPERATION
         assert status.observed_at is None
+
+
+def test_default_reader_reports_partial_jellyfin_configuration_as_configuration_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Surface incomplete but partially present configuration as configuration_error."""
+    _clear_provider_environment(monkeypatch)
+    monkeypatch.setenv(_JELLYFIN_BASE_URL_ENV, "https://jellyfin.synthetic.invalid/")
+
+    statuses = {status.provider: status for status in DefaultProviderStatusReader().read_provider_statuses()}
+
+    assert statuses[ProviderKind.JELLYFIN].operational is OperationalState.CONFIGURATION_ERROR
+    assert statuses[ProviderKind.JELLYFIN].configuration is ConfigurationState.NOT_CONFIGURED
+    assert statuses[ProviderKind.TMDB].operational is OperationalState.NO_RECORDED_OPERATION
 
 
 def test_default_reader_result_is_immutable_snapshots(monkeypatch: pytest.MonkeyPatch) -> None:

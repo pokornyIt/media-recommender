@@ -7,6 +7,7 @@ reveals credentials, URLs, external identities, or raw error details.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime  # noqa: TC003 - required at runtime by the Pydantic model field.
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, final
@@ -67,7 +68,7 @@ class ProviderStatus(BaseModel):
         :return: Validated timestamp.
         :raises ValueError: If the timestamp is naive (without UTC offset).
         """
-        if value is not None and value.tzinfo is None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
             message = "observed_at must be timezone-aware"
             raise ValueError(message)
         return value
@@ -135,10 +136,20 @@ def _provider_status(provider: ProviderKind, settings_type: type[TmdbSettings | 
     except SettingsError:
         return _malformed_status(provider)
     except ValidationError as errors:
-        if all(error["type"] == "missing" for error in errors.errors()):
+        if _configuration_is_absent(settings_type) and all(error["type"] == "missing" for error in errors.errors()):
             return ProviderStatus(provider=provider, configuration=ConfigurationState.NOT_CONFIGURED)
         return _malformed_status(provider)
     return ProviderStatus(provider=provider, configuration=ConfigurationState.CONFIGURED)
+
+
+def _configuration_is_absent(settings_type: type[TmdbSettings | JellyfinSettings]) -> bool:
+    """Return whether none of the provider's configuration inputs are supplied.
+
+    :param settings_type: Provider settings model whose environment prefix is inspected.
+    :return: Whether no environment variable carries the provider's configuration prefix.
+    """
+    prefix = settings_type.model_config.get("env_prefix", "")
+    return not any(name.startswith(prefix) for name in os.environ)
 
 
 def _malformed_status(provider: ProviderKind) -> ProviderStatus:
