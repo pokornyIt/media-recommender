@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Provider status · Media Recommender{% endblock %}
+
+{% block content %}
+<h1>Provider status</h1>
+<p>Configuration reflects settings validation only; it does not verify provider connectivity.</p>
+<dl>
+  {% for status in statuses %}
+  <dt>{{ status.provider.value | capitalize }}</dt>
+  <dd>
+    Configuration: {{ "Configured" if status.configuration.value == "configured" else "Not configured" }};
+    {% if status.operational.value == "success" %}
+      Last known operation: Success{% if status.observed_at %} ({{ status.observed_at.isoformat() }}){% endif %}
+    {% elif status.operational.value == "transient_failure" %}
+      Last known operation: Transient failure{% if status.observed_at %} ({{ status.observed_at.isoformat() }}){% endif %}
+    {% elif status.operational.value == "configuration_error" %}
+      Last known operation: Configuration error{% if status.observed_at %} ({{ status.observed_at.isoformat() }}){% endif %}
+    {% else %}
+      Last known operation: No recorded operation
+    {% endif %}
+  </dd>
+  {% endfor %}
+</dl>
+{% endblock %}
