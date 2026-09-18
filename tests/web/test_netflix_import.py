@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
+import tempfile
 from http import HTTPStatus
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -18,16 +20,17 @@ from media_recommender.application.orchestration import (
     WorkflowStatus,
 )
 from media_recommender.web import create_app
+from media_recommender.web.routes.imports import _stage_bounded_upload  # pyright: ignore[reportPrivateUsage]
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from httpx import Client, Response
 
 _SYNTHETIC_PROFILE = "Synthetic Profile"
 _SYNTHETIC_FILENAME = "synthetic-viewing-history.csv"
 _VALID_TOKEN = "valid-token"  # noqa: S105 - synthetic test value.
+_SYNTHETIC_IO_MESSAGE = "synthetic read failure"
 _SYNTHETIC_CSV = b"Title,Date\nSynthetic Title,9/14/26\n"
 _SYNTHETIC_SECRET = "synthetic-session-signing-secret"  # noqa: S105 - synthetic test value, not a credential.
 _TOKEN_PATTERN = re.compile(r'name="csrf_token" value="([^"]+)"')
@@ -67,6 +70,7 @@ def _report(  # noqa: PLR0913 - mirrors the aggregate counts varied by the scena
     unresolved: int = 0,
     ambiguous: int = 0,
     invalid: int = 0,
+    failed: int = 0,
     status: WorkflowStatus | None = None,
 ) -> WorkflowReport:
     """Build a synthetic Netflix viewing workflow report.
@@ -76,11 +80,12 @@ def _report(  # noqa: PLR0913 - mirrors the aggregate counts varied by the scena
     :param unresolved: Synthetic unresolved count.
     :param ambiguous: Synthetic ambiguous count.
     :param invalid: Synthetic invalid count.
+    :param failed: Synthetic failed count.
     :param status: Optional explicit status override.
     :return: Synthetic workflow report without item details.
     """
     if status is None:
-        problems = unresolved + ambiguous + invalid
+        problems = unresolved + ambiguous + invalid + failed
         status = WorkflowStatus.PARTIAL if problems else WorkflowStatus.SUCCESS
     return WorkflowReport(
         WorkflowKind.NETFLIX_VIEWING,
@@ -91,6 +96,7 @@ def _report(  # noqa: PLR0913 - mirrors the aggregate counts varied by the scena
             unresolved=unresolved,
             ambiguous=ambiguous,
             invalid=invalid,
+            failed=failed,
         ),
         (),
     )
@@ -327,6 +333,94 @@ def test_failed_report_and_exception_leak_nothing(caplog: pytest.LogCaptureFixtu
     for call_path, _, _ in raising.calls:
         assert str(call_path) not in response.text
         assert not call_path.exists()
+
+
+def test_misleading_header_is_rejected_before_facade() -> None:
+    """Reject a CSV whose parsed header does not match the supported format."""
+    service = FakeNetflixService(_report())
+    app = _app(service)
+    with _client(app) as client:
+        token = _form_token(client)
+        response = _post(client, token=token, content=b"Title,WatchedDate\nSynthetic Title,9/14/26\n")
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert service.calls == []
+
+
+def test_oversized_request_is_rejected_at_receiving_boundary() -> None:
+    """Reject declared-oversized uploads before multipart parsing and the facade."""
+    service = FakeNetflixService(_report())
+    app = _app(service, max_upload_bytes=8)
+    with _client(app) as client:
+        token = _form_token(client)
+        response = _post(client, token=token, content=b"Title,Date\n" + b"x" * 70_000)
+    assert response.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+    assert service.calls == []
+
+
+def test_staging_io_failure_leaves_no_temporary_file() -> None:
+    """Remove staged data even when reading the upload stream fails."""
+
+    class BrokenUploadStream:
+        """Upload stub whose stream read fails with an I/O error."""
+
+        def __init__(self) -> None:
+            self.filename = _SYNTHETIC_FILENAME
+
+        class _File:
+            def read(self, _size: int) -> bytes:
+                """Simulate an I/O failure while reading the stream.
+
+                :param _size: Requested chunk size.
+                :raises OSError: Always, to exercise cleanup on I/O failure.
+                """
+                raise OSError(_SYNTHETIC_IO_MESSAGE)
+
+        file = _File()
+
+    with pytest.raises(OSError, match="synthetic read failure"):
+        _stage_bounded_upload(BrokenUploadStream(), max_bytes=1024)  # pyright: ignore[reportArgumentType, reportPrivateUsage]
+    assert list(Path(tempfile.gettempdir()).glob("mr-netflix-*")) == []
+
+
+def test_mixed_skipped_and_problem_result_renders_partial_not_repeat() -> None:
+    """Render a skipped-plus-unresolved result as partial, not a full repeat."""
+    service = FakeNetflixService(_report(skipped=3, unresolved=2))
+    app = _app(service)
+    with _client(app) as client:
+        token = _form_token(client)
+        response = _post(client, token=token)
+    assert response.status_code == HTTPStatus.OK
+    assert "Nothing new was added" not in response.text
+    assert "not silently imported" in response.text
+    assert "Already imported: 3" in response.text
+
+
+def test_failed_count_is_rendered_without_details() -> None:
+    """Render the aggregate failed count for failed outcomes only."""
+    service = FakeNetflixService(_report(failed=1, status=WorkflowStatus.FAILED))
+    app = _app(service)
+    with _client(app) as client:
+        token = _form_token(client)
+        response = _post(client, token=token)
+    assert response.status_code == HTTPStatus.OK
+    assert "Failed: 1" in response.text
+    assert "reason" not in response.text.lower()
+
+
+def test_error_page_provides_fresh_csrf_token_for_retry() -> None:
+    """Allow correcting and resubmitting directly from a rejection page."""
+    service = FakeNetflixService(_report(imported=1))
+    app = _app(service)
+    with _client(app) as client:
+        token = _form_token(client)
+        rejection = _post(client, token=token, profile=None)
+        assert rejection.status_code == HTTPStatus.BAD_REQUEST
+        retry_token_match = _TOKEN_PATTERN.search(rejection.text)
+        assert retry_token_match is not None
+        retry = _post(client, token=retry_token_match.group(1))
+    assert retry.status_code == HTTPStatus.OK
+    assert "Imported: 1" in retry.text
+    assert len(service.calls) == 1
 
 
 def test_no_temporary_files_remain_after_all_scenarios() -> None:

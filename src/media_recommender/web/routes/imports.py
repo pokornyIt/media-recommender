@@ -7,6 +7,7 @@ parsers, or the full synchronization orchestrator entry point.
 
 from __future__ import annotations
 
+import csv
 import tempfile
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 router = APIRouter()
 
 _CSV_SUFFIX = ".csv"
-_REQUIRED_HEADER_COLUMNS = ("title", "date")
+_REQUIRED_HEADER_COLUMNS = frozenset({"title", "date"})
 _CHUNK_SIZE = 64 * 1024
 _TOO_LARGE_MESSAGE = "The uploaded file is too large."
 _EMPTY_UPLOAD_MESSAGE = "The uploaded file is empty."
@@ -60,6 +61,7 @@ class NetflixImportOutcome:
     unresolved: int
     ambiguous: int
     invalid: int
+    failed: int
 
     @property
     def is_failed(self) -> bool:
@@ -67,23 +69,26 @@ class NetflixImportOutcome:
 
         :return: Whether the outcome represents an operational failure.
         """
-        return self.status == "failed"
+        return self.status == "failed" or self.failed > 0
 
     @property
     def is_partial(self) -> bool:
         """Return whether some rows were not imported.
 
-        :return: Whether unresolved, ambiguous, or invalid rows exist.
+        :return: Whether unresolved, ambiguous, invalid, or failed rows exist.
         """
-        return (self.unresolved + self.ambiguous + self.invalid) > 0
+        return (self.unresolved + self.ambiguous + self.invalid + self.failed) > 0
 
     @property
     def is_repeat(self) -> bool:
-        """Return whether every row was already imported previously.
+        """Return whether the submission was a complete, fully idempotent repeat.
 
-        :return: Whether the import was a fully idempotent repeat.
+        A repeat means nothing new was imported and every record was already
+        present, with no unresolved, ambiguous, invalid, or failed rows.
+
+        :return: Whether the import was a complete successful repeat.
         """
-        return self.imported == 0 and self.already_imported > 0
+        return self.imported == 0 and self.already_imported > 0 and not self.is_partial
 
 
 def get_session_secret(request: Request) -> bytes:
@@ -147,16 +152,6 @@ def _validate_csrf(request: Request, submitted_token: str | None) -> None:
         raise UploadRejected(msg, HTTPStatus.FORBIDDEN)
 
 
-def _header_line(path: Path) -> str:
-    """Return the first text line of the staged file.
-
-    :param path: Staged temporary file path.
-    :return: Decoded first line of the staged content.
-    """
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        return handle.readline()
-
-
 def _upload_chunks(upload: UploadFile) -> Iterator[bytes]:
     """Yield raw upload chunks from the multipart stream.
 
@@ -180,27 +175,45 @@ def _stage_bounded_upload(upload: UploadFile, max_bytes: int) -> Path:
     """
     handle = tempfile.NamedTemporaryFile(prefix="mr-netflix-", suffix=".csv", delete=False)  # noqa: SIM115
     path = Path(handle.name)
+    staged_cleanly = False
     try:
         with handle:
             total = 0
             for chunk in _upload_chunks(upload):
                 total += len(chunk)
                 if total > max_bytes:
-                    raise UploadRejected(_TOO_LARGE_MESSAGE)  # noqa: TRY301 - staged cleanup happens in this scope.
+                    raise UploadRejected(_TOO_LARGE_MESSAGE)
                 handle.write(chunk)
         if total == 0:
-            raise UploadRejected(_EMPTY_UPLOAD_MESSAGE)  # noqa: TRY301 - staged cleanup happens in this scope.
-    except UploadRejected:
-        path.unlink(missing_ok=True)
-        raise
-    return path
+            raise UploadRejected(_EMPTY_UPLOAD_MESSAGE)
+        staged_cleanly = True
+        return path
+    finally:
+        # Any failure, including read/write/flush/close I/O errors, must leave no staged data.
+        if not staged_cleanly:
+            path.unlink(missing_ok=True)
+
+
+def _header_fields(staged: Path) -> frozenset[str]:
+    """Parse the staged file's first CSV record into normalized field names.
+
+    The header is parsed with the ``csv`` module, matching the supported
+    Netflix export structure rather than any substring heuristic.
+
+    :param staged: Staged temporary file path.
+    :return: Normalized lowercase header field names of the first record.
+    """
+    with staged.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        for row in csv.reader(handle, strict=True):
+            return frozenset(field.strip().lower() for field in row)
+    return frozenset()
 
 
 def _reject_unsupported(upload: UploadFile, staged: Path) -> None:
-    """Reject uploads that do not look like a supported viewing-activity CSV.
+    """Reject uploads that do not match the supported viewing-activity CSV header.
 
-    The filename suffix is treated only as an early UX signal; the content
-    header check is the truthful validation.
+    The filename suffix is treated only as an early UX signal; the parsed
+    content header is the truthful validation against the supported format.
 
     :param upload: Original multipart upload.
     :param staged: Staged temporary file path.
@@ -209,8 +222,7 @@ def _reject_unsupported(upload: UploadFile, staged: Path) -> None:
     if upload.filename is not None and upload.filename.strip() and not upload.filename.lower().endswith(_CSV_SUFFIX):
         msg = "The uploaded file is not a supported Netflix viewing activity CSV."
         raise UploadRejected(msg)
-    header = _header_line(staged).lower()
-    if not all(column in header for column in _REQUIRED_HEADER_COLUMNS):
+    if not _header_fields(staged) >= _REQUIRED_HEADER_COLUMNS:
         msg = "The uploaded file is not a supported Netflix viewing activity CSV."
         raise UploadRejected(msg)
 
@@ -229,6 +241,7 @@ def _outcome_from_report(report_status: str, counts: object) -> NetflixImportOut
         unresolved=getattr(counts, "unresolved", 0),
         ambiguous=getattr(counts, "ambiguous", 0),
         invalid=getattr(counts, "invalid", 0),
+        failed=getattr(counts, "failed", 0),
     )
 
 
@@ -265,14 +278,24 @@ def _error_page(request: Request, templates: Jinja2Templates, message: str, stat
     :param templates: Shared Jinja2 template renderer.
     :param message: Safe user-facing rejection description.
     :param status: HTTP status for the response.
-    :return: Rejection page without upload specifics.
+    :return: Rejection page without upload specifics, carrying a fresh CSRF token.
     """
-    return templates.TemplateResponse(
+    cookie_value = csrf.issue_signed_token(get_session_secret(request))
+    token = csrf.session_token(cookie_value, get_session_secret(request))
+    response = templates.TemplateResponse(
         request,
         "netflix_import.html",
-        {"error": message},
+        {"error": message, "csrf_token": token},
         status_code=status.value,
     )
+    response.set_cookie(
+        csrf.COOKIE_NAME,
+        cookie_value,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+    return response
 
 
 @router.get("/imports/netflix", response_class=HTMLResponse)

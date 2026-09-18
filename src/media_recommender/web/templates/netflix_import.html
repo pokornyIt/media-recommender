@@ -42,19 +42,21 @@
       <h2 id="import-result-heading">Import result</h2>
       {% if outcome.is_failed %}
         <p>The import could not be completed. Please try again later.</p>
-      {% elif outcome.is_repeat %}
+      {% endif %}
+      {% if outcome.is_repeat %}
         <p>All records were already imported. Nothing new was added.</p>
-        <p>Already imported: {{ outcome.already_imported }}</p>
-      {% else %}
-        <p>Imported: {{ outcome.imported }}</p>
-        <p>Already imported: {{ outcome.already_imported }}</p>
-        {% if outcome.is_partial %}
-          <p>
-            Some rows were not imported: unresolved {{ outcome.unresolved }},
-            ambiguous {{ outcome.ambiguous }}, invalid {{ outcome.invalid }}.
-            These rows were not silently imported.
-          </p>
-        {% endif %}
+      {% endif %}
+      <p>Imported: {{ outcome.imported }}</p>
+      <p>Already imported: {{ outcome.already_imported }}</p>
+      {% if outcome.failed > 0 %}
+        <p>Failed: {{ outcome.failed }}</p>
+      {% endif %}
+      {% if outcome.is_partial %}
+        <p>
+          Some rows were not imported: unresolved {{ outcome.unresolved }},
+          ambiguous {{ outcome.ambiguous }}, invalid {{ outcome.invalid }}.
+          These rows were not silently imported.
+        </p>
       {% endif %}
     </section>
   {% endif %}
