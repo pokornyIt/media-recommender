@@ -25,12 +25,18 @@ from media_recommender.application import (
     RecommendationCriteria,
     RecommendationService,
     WatchRequirement,
+    WorkflowCounts,
     WorkflowItemStatus,
     WorkflowKind,
     WorkflowReport,
     WorkflowStatus,
 )
-from media_recommender.application.imports import PersonalMediaImportService
+from media_recommender.application.imports import (
+    ImportRecordResult,
+    ImportRecordStatus,
+    PersonalImportResult,
+    PersonalMediaImportService,
+)
 from media_recommender.application.library import LibrarySynchronizationService
 from media_recommender.config import Settings
 from media_recommender.domain import (
@@ -401,3 +407,102 @@ def test_phase2_workflow_is_offline_repeatable_and_failure_isolated(tmp_path: Pa
     command.upgrade(config, PHASE_ONE_REVISION)
     command.upgrade(config, "head")
     asyncio.run(_exercise_phase2_workflow(database_path, tmp_path))
+
+
+class _RecordingNetflix:
+    """Record the single Netflix import call for the facade contract test."""
+
+    def __init__(self) -> None:
+        self.calls: list[Path] = []
+
+    async def import_viewing_activity(self, path: Path, *, external_profile_id: str) -> PersonalImportResult:
+        """Record and complete one synthetic viewing import.
+
+        :param path: Private local CSV path.
+        :param external_profile_id: External profile label, retained on the fake.
+        :return: One imported synthetic record.
+        """
+        self.last_profile = external_profile_id
+        self.calls.append(path)
+        return PersonalImportResult(records=(ImportRecordResult(row_number=1, status=ImportRecordStatus.IMPORTED),))
+
+    async def import_ratings(self, _path: Path, *, _external_profile_id: str) -> PersonalImportResult:
+        """Fail loudly if ratings import is ever invoked.
+
+        :param _path: Private local CSV path.
+        :param _external_profile_id: External profile label.
+        :raises AssertionError: Always, because the facade must not import ratings.
+        """
+        raise AssertionError(_FACADE_VIOLATION_PREFIX + "ratings import")
+
+
+_FACADE_VIOLATION_PREFIX = "The viewing-only facade must not run: "
+
+
+class _RecordingLibrary:
+    """Fail loudly if library synchronization is ever invoked."""
+
+    async def synchronize(self) -> None:
+        """Fail loudly on any invocation.
+
+        :raises AssertionError: Always, because the facade must not synchronize.
+        """
+        raise AssertionError(_FACADE_VIOLATION_PREFIX + "library synchronization")
+
+
+class _RecordingAvailability:
+    """Fail loudly if availability refresh is ever invoked."""
+
+    async def refresh(self, _candidate: object, _region: str) -> None:
+        """Fail loudly on any invocation.
+
+        :param _candidate: Identity candidate.
+        :param _region: Region code.
+        :raises AssertionError: Always, because the facade must not refresh.
+        """
+        raise AssertionError(_FACADE_VIOLATION_PREFIX + "availability refresh")
+
+
+class _UnusedProfiles:
+    """Profile repository placeholder that must never be called."""
+
+    async def get_or_create_default(self) -> None:
+        """Fail loudly on any invocation.
+
+        :raises AssertionError: Always, because the facade must not use profiles.
+        """
+        raise AssertionError(_FACADE_VIOLATION_PREFIX + "profile persistence")
+
+
+class _UnusedRecommendations:
+    """Recommendation service placeholder that must never be called."""
+
+    async def recommend(self, _profile_id: object, _criteria: object) -> None:
+        """Fail loudly on any invocation.
+
+        :param _profile_id: Internal profile identity.
+        :param _criteria: Structured criteria.
+        :raises AssertionError: Always, because the facade must not recommend.
+        """
+        raise AssertionError(_FACADE_VIOLATION_PREFIX + "recommendations")
+
+
+def test_import_netflix_viewing_facade_runs_only_the_netflix_workflow(tmp_path: Path) -> None:
+    """Run exactly one Netflix viewing import without library or availability work."""
+    netflix = _RecordingNetflix()
+    orchestrator = Phase2Orchestrator(
+        _UnusedProfiles(),  # pyright: ignore[reportArgumentType]
+        netflix,  # pyright: ignore[reportArgumentType]
+        _RecordingLibrary(),  # pyright: ignore[reportArgumentType]
+        _RecordingAvailability(),  # pyright: ignore[reportArgumentType]
+        _UnusedRecommendations(),  # pyright: ignore[reportArgumentType]
+    )
+    staged = tmp_path / "synthetic-viewing.csv"
+    staged.write_text("Title,Date\nSynthetic Title,9/14/26\n", encoding="utf-8")
+
+    report = asyncio.run(orchestrator.import_netflix_viewing(staged, external_profile_id="Synthetic Profile"))
+
+    assert netflix.calls == [staged]
+    assert report.kind is WorkflowKind.NETFLIX_VIEWING
+    assert report.status is WorkflowStatus.SUCCESS
+    assert report.counts == WorkflowCounts(succeeded=1)

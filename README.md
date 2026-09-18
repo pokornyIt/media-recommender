@@ -170,9 +170,10 @@ interface handler owns the error. Framework HTTP and validation responses retain
 future feature-specific handlers take precedence over the generic unexpected-error fallback.
 
 State-changing operations must never use `GET`. Safe and idempotent method semantics must be stated by each future
-endpoint. Browser-originated state-changing requests will use same-origin protection, and future server-rendered forms
-will include CSRF tokens; this foundation intentionally does not yet generate, store, or validate them. In contrast,
-`POST /api/v1/recommendations` performs read-only computation and is not state-changing.
+endpoint. Browser-originated state-changing requests use same-origin protection: server-rendered state-changing forms,
+starting with the Netflix import page, issue a signed-session CSRF token in an `HttpOnly`, `SameSite=Lax` cookie and
+validate it in constant time before performing the operation. In contrast, `POST /api/v1/recommendations` performs
+read-only computation and is not state-changing.
 
 ### MCP Integration
 
@@ -276,6 +277,7 @@ minimum settings; the TMDB token is unnecessary for tests and CI because provide
 ```bash
 export MEDIA_RECOMMENDER_DATABASE_PATH="data/media-recommender.db"
 export MEDIA_RECOMMENDER_TMDB_API_TOKEN="replace-with-tmdb-api-read-access-token"
+export MEDIA_RECOMMENDER_WEB_SESSION_SECRET="replace-with-a-long-random-value"
 ```
 
 Optional TMDB and Jellyfin configuration, endpoint, and timeout settings are documented in

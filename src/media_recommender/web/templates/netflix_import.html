@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Netflix import — Media Recommender{% endblock %}
+
+{% block errors %}
+  {% if error %}
+    <p>{{ error }}</p>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  <h1>Import Netflix viewing activity</h1>
+
+  <p>
+    Upload a Netflix <strong>Viewing Activity</strong> CSV export together with the
+    Netflix profile label it belongs to. The uploaded file is processed only for
+    this single import request and is not stored afterwards.
+  </p>
+
+  <form method="post" action="{{ url_for('netflix_import_submit') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <p>
+      <label for="file">Viewing activity CSV file</label>
+      <input type="file" id="file" name="file" accept=".csv,text/csv" required>
+    </p>
+
+    <p>
+      <label for="profile_label">Netflix profile label</label>
+      <input type="text" id="profile_label" name="profile_label" required
+             autocomplete="off" aria-describedby="profile-label-help">
+      <span id="profile-label-help">
+        The exact profile name shown in Netflix; it is used to attribute the imported history.
+      </span>
+    </p>
+
+    <button type="submit">Import</button>
+  </form>
+
+  {% if outcome %}
+    <section aria-labelledby="import-result-heading">
+      <h2 id="import-result-heading">Import result</h2>
+      {% if outcome.is_failed %}
+        <p>The import could not be completed. Please try again later.</p>
+      {% elif outcome.is_repeat %}
+        <p>All records were already imported. Nothing new was added.</p>
+        <p>Already imported: {{ outcome.already_imported }}</p>
+      {% else %}
+        <p>Imported: {{ outcome.imported }}</p>
+        <p>Already imported: {{ outcome.already_imported }}</p>
+        {% if outcome.is_partial %}
+          <p>
+            Some rows were not imported: unresolved {{ outcome.unresolved }},
+            ambiguous {{ outcome.ambiguous }}, invalid {{ outcome.invalid }}.
+            These rows were not silently imported.
+          </p>
+        {% endif %}
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

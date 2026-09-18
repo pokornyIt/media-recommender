@@ -38,19 +38,42 @@ content-interaction history, including rated titles; generation can take up to 3
 
 Media Recommender supports the `CONTENT_INTERACTION/Ratings.csv` layout:
 
-| Column | Required | Meaning |
-| --- | --- | --- |
-| `Profile Name` | yes | Netflix profile label; rows must match the profile selected for import |
-| `Title Name` | yes | Title evidence passed to shared identity resolution |
-| `Rating Type` | yes | Selects the documented star or thumb interpretation |
-| `Star Value` | yes | Legacy star rating; positive values are retained on their original scale |
-| `Thumbs Value` | yes | `1` means thumbs down and `2` means thumbs up; `0` is not an active rating |
-| `Event Utc Ts` | no | UTC timestamp of the interaction; ISO-like values are supported |
-| `Region View Date` | no | Fallback date in the parser's configured date format |
-| `Device Model` | no | Accepted when present but deliberately not retained |
+| Column             | Required | Meaning                                                                    |
+| ------------------ | -------- | -------------------------------------------------------------------------- |
+| `Profile Name`     | yes      | Netflix profile label; rows must match the profile selected for import     |
+| `Title Name`       | yes      | Title evidence passed to shared identity resolution                        |
+| `Rating Type`      | yes      | Selects the documented star or thumb interpretation                        |
+| `Star Value`       | yes      | Legacy star rating; positive values are retained on their original scale   |
+| `Thumbs Value`     | yes      | `1` means thumbs down and `2` means thumbs up; `0` is not an active rating |
+| `Event Utc Ts`     | no       | UTC timestamp of the interaction; ISO-like values are supported            |
+| `Region View Date` | no       | Fallback date in the parser's configured date format                       |
+| `Device Model`     | no       | Accepted when present but deliberately not retained                        |
 
 Netflix may change the contents or names of files in a full account-data archive. Inspect the archive's own
 documentation and headers before import. A file with different headers is not silently guessed into this format.
+
+## Web import page
+
+The Web UI provides a Netflix viewing-activity import page at `/imports/netflix`. It supports only the
+profile-specific `NetflixViewingHistory.csv` export described above; the account-data `Ratings.csv` file is not
+accepted through this page.
+
+The form requires the CSV file and the stable Netflix profile label the export belongs to. Uploaded data is
+request-transient: it is staged in a private temporary file only for the duration of the import request, is never
+persisted, and is always removed afterwards. Filenames, profile labels, file contents, and temporary paths are never
+rendered or logged. The result page shows only aggregate counts: imported, already imported (skipped), unresolved,
+ambiguous, and invalid. Repeating an import of the same export is idempotent and reports every record as already
+imported.
+
+Uploads are limited to 10 MiB, enforced on the actual streamed bytes. Change the limit with
+`MEDIA_RECOMMENDER_NETFLIX_IMPORT_MAX_UPLOAD_BYTES` (a positive integer byte count). Invalid, empty, oversized, or
+unsupported uploads are rejected before any import work runs.
+
+The page is protected with a signed-session CSRF token. The token is stored in an `HttpOnly`, `SameSite=Lax` cookie
+(`mr_csrf`) signed with the runtime session secret and mirrored in a hidden form field that is compared in constant
+time on submission. Set a stable, non-empty secret with `MEDIA_RECOMMENDER_WEB_SESSION_SECRET`; when it is unset, an
+ephemeral per-process secret is generated, which invalidates issued form sessions on restart. Deploy the application
+behind HTTPS so the session cookie is never sent over an untrusted network.
 
 ## Import behavior
 

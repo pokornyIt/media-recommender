@@ -1,5 +1,6 @@
 """Validated application configuration."""
 
+import secrets
 from pathlib import Path
 from typing import Self
 
@@ -15,6 +16,28 @@ class Settings(BaseSettings):
 
     database_path: Path = Path("data/media-recommender.db")
     default_region: str = Field(default="CZ", pattern=r"^[A-Z]{2}$")
+    netflix_import_max_upload_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    web_session_secret: SecretStr = SecretStr("")
+
+    @field_validator("web_session_secret", mode="before")
+    @classmethod
+    def generate_secret_when_unconfigured(cls, value: object) -> object:
+        """Replace an unconfigured session secret with an ephemeral random value.
+
+        An explicitly configured value must be non-blank; when absent, a fresh
+        per-process secret is generated so signed sessions remain non-empty and
+        secret-free defaults never appear in rendered output or logs.
+
+        :param value: Raw configured secret value.
+        :return: Non-empty secret value.
+        :raises ValueError: If an explicitly configured secret is blank.
+        """
+        if value is None or (isinstance(value, SecretStr) and not value.get_secret_value().strip()):
+            return SecretStr(secrets.token_urlsafe(32))
+        if isinstance(value, str) and not value.strip():
+            msg = "Web session secret must not be blank"
+            raise ValueError(msg)
+        return value
 
     @field_validator("database_path", mode="before")
     @classmethod
