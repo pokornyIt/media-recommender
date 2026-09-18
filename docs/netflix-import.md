@@ -75,7 +75,8 @@ into test fixtures, log their rows, or upload them as CI artifacts. Repository t
 
 The server-rendered page at `GET /imports/netflix` accepts one Viewing Activity CSV and a stable profile label.
 `POST /imports/netflix` is a state-changing form submission protected by a session-bound CSRF token and an exact
-`Origin` check. The route rejects missing, blank, unsupported, and oversized uploads before the importer runs.
+`Origin` check. The configured size limit is enforced at the request boundary before multipart parsing, and the route
+rejects missing, blank, unsupported, and oversized uploads before the importer runs.
 
 The upload is staged only as a short-lived private temporary file for the duration of the request and is removed on
 success or failure. It is never written to the repository, the application image, or durable upload storage. The page

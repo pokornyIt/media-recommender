@@ -35,10 +35,10 @@
   <p>These records were already imported; no new viewing events were added.</p>
   {% elif result.outcome.value == "partial" %}
   <p>Import completed with rows that were not imported. Unresolved, ambiguous, and invalid rows were not silently imported.</p>
-  {% elif result.outcome.value == "failed" %}
+  {% elif result.outcome.value in ("failed", "unexpected_failure") %}
   <p>The import could not be completed. Try again later.</p>
   {% endif %}
-  {% if result.outcome.value != "failed" %}
+  {% if result.outcome.value != "unexpected_failure" %}
   <dl>
     <dt>Imported</dt>
     <dd>{{ result.imported }}</dd>
@@ -50,6 +50,8 @@
     <dd>{{ result.ambiguous }}</dd>
     <dt>Invalid</dt>
     <dd>{{ result.invalid }}</dd>
+    <dt>Failed</dt>
+    <dd>{{ result.failed }}</dd>
   </dl>
   {% endif %}
 </section>

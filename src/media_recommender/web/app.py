@@ -11,8 +11,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from media_recommender.config import Settings
 from media_recommender.web.errors import register_exception_handlers
+from media_recommender.web.middleware import RequestBodyLimitMiddleware
 from media_recommender.web.routes.api import router as api_router
-from media_recommender.web.routes.imports import register_import_exception_handlers
+from media_recommender.web.routes.imports import NETFLIX_IMPORT_PATH, register_import_exception_handlers
 from media_recommender.web.routes.imports import router as import_router
 from media_recommender.web.routes.media import register_media_exception_handlers
 from media_recommender.web.routes.pages import router as page_router
@@ -41,6 +42,11 @@ def create_app() -> FastAPI:
         session_cookie=_SESSION_COOKIE_NAME,
         same_site="lax",
         https_only=False,
+    )
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        path=NETFLIX_IMPORT_PATH,
+        max_bytes=settings.netflix_upload_max_bytes,
     )
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIRECTORY))
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIRECTORY)), name="static")

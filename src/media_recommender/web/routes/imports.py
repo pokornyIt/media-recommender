@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 
 router = APIRouter()
 
+NETFLIX_IMPORT_PATH = "/imports/netflix"
+
 _UPLOAD_CHUNK_BYTES = 64 * 1024
 _HEADER_READ_BYTES = 4096
 _REQUIRED_VIEWING_COLUMNS = frozenset({"Title", "Date"})
@@ -50,6 +52,7 @@ class NetflixImportOutcome(StrEnum):
     REPEAT = "repeat"
     PARTIAL = "partial"
     FAILED = "failed"
+    UNEXPECTED_FAILURE = "unexpected_failure"
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +65,7 @@ class NetflixImportView:
     unresolved: int = 0
     ambiguous: int = 0
     invalid: int = 0
+    failed: int = 0
 
 
 class _UploadRejectedError(Exception):
@@ -90,7 +94,7 @@ def get_netflix_upload_limit() -> int:
     return Settings().netflix_upload_max_bytes
 
 
-@router.get("/imports/netflix", response_class=HTMLResponse)
+@router.get(NETFLIX_IMPORT_PATH, response_class=HTMLResponse)
 async def netflix_import_page(
     request: Request,
     templates: Annotated[Jinja2Templates, Depends(get_templates)],
@@ -104,7 +108,7 @@ async def netflix_import_page(
     return _render(templates, request, None)
 
 
-@router.post("/imports/netflix", response_class=HTMLResponse)
+@router.post(NETFLIX_IMPORT_PATH, response_class=HTMLResponse)
 async def submit_netflix_import(  # noqa: PLR0913, PLR0917 - FastAPI dependency and multipart form parameters.
     request: Request,
     templates: Annotated[Jinja2Templates, Depends(get_templates)],
@@ -136,6 +140,8 @@ async def submit_netflix_import(  # noqa: PLR0913, PLR0917 - FastAPI dependency 
         if not _has_viewing_header(staged):
             return _render(templates, request, _invalid_request_view(), status_code=HTTPStatus.BAD_REQUEST)
         report = await service.import_netflix_viewing(staged, external_profile_id=label)
+    except Exception:  # noqa: BLE001 - translate unexpected application failures into a sanitized result.
+        return _render(templates, request, _unexpected_failure_view(), status_code=HTTPStatus.INTERNAL_SERVER_ERROR)
     finally:
         staged.unlink(missing_ok=True)
     return _render(templates, request, _view_from_report(report))
@@ -244,8 +250,8 @@ def _view_from_report(report: WorkflowReport) -> NetflixImportView:
     """
     counts = report.counts
     if report.status is WorkflowStatus.FAILED:
-        return NetflixImportView(NetflixImportOutcome.FAILED)
-    if report.status is WorkflowStatus.PARTIAL:
+        outcome = NetflixImportOutcome.FAILED
+    elif report.status is WorkflowStatus.PARTIAL:
         outcome = NetflixImportOutcome.PARTIAL
     elif counts.succeeded == 0 and counts.skipped > 0:
         outcome = NetflixImportOutcome.REPEAT
@@ -258,6 +264,7 @@ def _view_from_report(report: WorkflowReport) -> NetflixImportView:
         unresolved=counts.unresolved,
         ambiguous=counts.ambiguous,
         invalid=counts.invalid,
+        failed=counts.failed,
     )
 
 
@@ -267,6 +274,14 @@ def _invalid_request_view() -> NetflixImportView:
     :return: Invalid-request result without import counts.
     """
     return NetflixImportView(NetflixImportOutcome.INVALID_REQUEST)
+
+
+def _unexpected_failure_view() -> NetflixImportView:
+    """Return the safe result for an unexpected application failure.
+
+    :return: Failure result without exception data or report counts.
+    """
+    return NetflixImportView(NetflixImportOutcome.UNEXPECTED_FAILURE)
 
 
 def _render(

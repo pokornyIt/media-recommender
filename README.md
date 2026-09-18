@@ -161,10 +161,11 @@ constraints to the injected Phase 2 recommendation facade and returns only order
 with factual structured explanations. It does not expose rejected candidates, filter decisions, or exclusions.
 
 `GET /imports/netflix` renders an accessible multipart form for one Netflix Viewing Activity CSV and a stable profile
-label. `POST /imports/netflix` validates the CSRF token, filename, content type, header, and streamed size before
-staging the upload in a short-lived private temporary file and delegating to the Netflix-only application facade. The
-page renders aggregate counts only and never persists or renders the upload, filename, or profile label. The default
-maximum upload size is 10 MiB and can be changed with `MEDIA_RECOMMENDER_NETFLIX_UPLOAD_MAX_BYTES`.
+label. `POST /imports/netflix` enforces the configured size limit at the request boundary before multipart parsing,
+then validates the CSRF token, filename, content type, and header before staging the upload in a short-lived private
+temporary file and delegating to the Netflix-only application facade. The page renders aggregate counts only and never
+persists or renders the upload, filename, or profile label. The default maximum upload size is 10 MiB and can be
+changed with `MEDIA_RECOMMENDER_NETFLIX_UPLOAD_MAX_BYTES`.
 
 The implemented server-rendered UI includes the shared application shell, home page, read-only provider status page,
 and the Netflix Viewing Activity import page. Provider configuration, Jellyfin synchronization controls,

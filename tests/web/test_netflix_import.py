@@ -8,6 +8,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from media_recommender.application import (
@@ -20,6 +21,7 @@ from media_recommender.application import (
 )
 from media_recommender.domain import MediaId
 from media_recommender.web import create_app
+from media_recommender.web.middleware import RequestBodyLimitMiddleware
 from media_recommender.web.routes.imports import get_netflix_import_service, get_netflix_upload_limit
 
 if TYPE_CHECKING:
@@ -233,7 +235,7 @@ def test_missing_upload_is_rejected_before_import() -> None:
 
 
 def test_oversized_upload_is_rejected_before_import() -> None:
-    """Reject an upload whose streamed bytes exceed the configured limit."""
+    """Reject an upload whose streamed bytes exceed the configured route limit."""
     service = FakeNetflixService(_report(WorkflowStatus.SUCCESS, WorkflowCounts(succeeded=1)))
     client = _client(service, max_bytes=16)
     token = _csrf_token(client)
@@ -242,6 +244,37 @@ def test_oversized_upload_is_rejected_before_import() -> None:
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert service.calls == []
+
+
+def test_oversized_upload_is_rejected_at_the_receiving_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reject an oversized body before multipart parsing can spool it."""
+    monkeypatch.setenv("MEDIA_RECOMMENDER_NETFLIX_UPLOAD_MAX_BYTES", "16")
+    service = FakeNetflixService(_report(WorkflowStatus.SUCCESS, WorkflowCounts(succeeded=1)))
+    app = create_app()
+    app.dependency_overrides[get_netflix_import_service] = lambda: service
+    client = cast("Client", TestClient(app))
+    token = _csrf_token(client)
+
+    response = _post(client, token=token, content=b"Title,Date\n" + b"x" * 64 + b"\n")
+
+    assert response.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+    assert service.calls == []
+
+
+def test_body_limit_middleware_counts_streamed_bytes_without_content_length() -> None:
+    """Reject a chunked body that exceeds the limit even without Content-Length."""
+    app = FastAPI()
+    app.add_middleware(RequestBodyLimitMiddleware, path="/upload", max_bytes=16)
+
+    @app.post("/upload")
+    async def upload(request: Request) -> dict[str, int]:
+        """Return the received body length."""
+        body = await request.body()
+        return {"length": len(body)}
+
+    response = cast("Client", TestClient(app)).post("/upload", content=iter([b"x" * 32]))
+
+    assert response.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
 
 
 def test_repeat_import_reports_already_imported() -> None:
@@ -263,7 +296,7 @@ def test_partial_result_does_not_claim_success_or_render_items() -> None:
     service = FakeNetflixService(
         _report(
             WorkflowStatus.PARTIAL,
-            WorkflowCounts(succeeded=1, unresolved=1, ambiguous=1, invalid=1),
+            WorkflowCounts(succeeded=1, unresolved=2, ambiguous=3, invalid=4, failed=5),
             (item,),
         )
     )
@@ -274,12 +307,14 @@ def test_partial_result_does_not_claim_success_or_render_items() -> None:
 
     assert response.status_code == HTTPStatus.OK
     assert "not silently imported" in response.text
+    for count in (1, 2, 3, 4, 5):
+        assert f"<dd>{count}</dd>" in response.text
     assert _SYNTHETIC_REASON not in response.text
     assert str(item.candidate_ids[0]) not in response.text
 
 
-def test_failed_report_renders_generic_retryable_failure() -> None:
-    """Render a generic failure for a local source failure report."""
+def test_failed_report_renders_generic_retryable_failure_and_failed_count() -> None:
+    """Render a generic failure and the aggregate failed count for a failed report."""
     service = FakeNetflixService(_report(WorkflowStatus.FAILED, WorkflowCounts(failed=1)))
     client = _client(service)
     token = _csrf_token(client)
@@ -288,28 +323,28 @@ def test_failed_report_renders_generic_retryable_failure() -> None:
 
     assert response.status_code == HTTPStatus.OK
     assert "could not be completed" in response.text
+    assert "<dt>Failed</dt>" in response.text
+    assert "<dd>1</dd>" in response.text
     assert "local_source_failure" not in response.text
 
 
-def test_unexpected_exception_and_logs_do_not_leak_private_values(
+def test_unexpected_exception_is_translated_without_propagation_or_leakage(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Return a safe response and logs when the facade raises unexpectedly."""
+    """Translate an unexpected facade exception into a sanitized response."""
     monkeypatch.setenv(_SESSION_SECRET_ENV, _SYNTHETIC_SECRET)
     service = FakeNetflixService(
         error=RuntimeError(f"{_SYNTHETIC_FILENAME} {_SYNTHETIC_LABEL} {_SYNTHETIC_SECRET} {_SYNTHETIC_REASON}")
     )
-    app = create_app()
-    app.dependency_overrides[get_netflix_import_service] = lambda: service
-    app.dependency_overrides[get_netflix_upload_limit] = lambda: 1024
-    client = cast("Client", TestClient(app, raise_server_exceptions=False))
+    client = _client(service)
     token = _csrf_token(client)
 
     with caplog.at_level(logging.DEBUG):
         response = _post(client, token=token)
 
     assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert "could not be completed" in response.text
     for value in (_SYNTHETIC_FILENAME, _SYNTHETIC_LABEL, _SYNTHETIC_SECRET, _SYNTHETIC_REASON):
         assert value not in response.text
         assert value not in caplog.text
