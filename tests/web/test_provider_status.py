@@ -23,7 +23,35 @@ if TYPE_CHECKING:
     import pytest
     from httpx import Client
 
+_TMDB_TOKEN_ENV = "MEDIA_RECOMMENDER_TMDB_API_TOKEN"  # noqa: S105 - environment variable name, not a secret.
+_TMDB_HTTP_TIMEOUT_ENV = "MEDIA_RECOMMENDER_TMDB_HTTP__CONNECT_TIMEOUT_SECONDS"
+_JELLYFIN_BASE_URL_ENV = "MEDIA_RECOMMENDER_JELLYFIN_BASE_URL"
+_JELLYFIN_TOKEN_ENV = "MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN"  # noqa: S105 - environment variable name, not a secret.
+_JELLYFIN_USER_ID_ENV = "MEDIA_RECOMMENDER_JELLYFIN_USER_ID"
+
 _PROVIDER_COUNT = 2
+
+_SYNTHETIC_SECRETS = (
+    "synthetic-tmdb-value",
+    "https://jellyfin.synthetic.invalid/",
+    "synthetic-jellyfin-value",
+    "synthetic-user",
+)
+
+
+def _clear_provider_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every provider configuration value from the environment.
+
+    :param monkeypatch: Pytest environment patching fixture.
+    """
+    for env_name in (
+        _TMDB_TOKEN_ENV,
+        _TMDB_HTTP_TIMEOUT_ENV,
+        _JELLYFIN_BASE_URL_ENV,
+        _JELLYFIN_TOKEN_ENV,
+        _JELLYFIN_USER_ID_ENV,
+    ):
+        monkeypatch.delenv(env_name, raising=False)
 
 
 def _status(
@@ -107,37 +135,46 @@ def test_provider_status_page_renders_failure_states_distinctly() -> None:
     assert "Success" not in response.text
 
 
-def test_provider_status_page_does_not_leak_synthetic_secrets() -> None:
-    """Keep credentials, URLs, identifiers, and raw error details out of the page."""
-    synthetic_values = (
-        "synthetic-tmdb-value",
-        "https://jellyfin.synthetic.invalid/",
-        "synthetic-jellyfin-value",
-        "synthetic-user",
-        "RawErrorDetails",
-        "history-file.csv",
-    )
-    statuses = [
-        _status(ProviderKind.TMDB, ConfigurationState.CONFIGURED, OperationalState.TRANSIENT_FAILURE),
-        _status(ProviderKind.JELLYFIN, ConfigurationState.NOT_CONFIGURED, OperationalState.CONFIGURATION_ERROR),
-    ]
+def test_default_request_path_does_not_leak_synthetic_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve the default page with synthetic secrets configured and render none of them."""
+    _clear_provider_environment(monkeypatch)
+    monkeypatch.setenv(_TMDB_TOKEN_ENV, "synthetic-tmdb-value")
+    monkeypatch.setenv(_JELLYFIN_BASE_URL_ENV, "https://jellyfin.synthetic.invalid/")
+    monkeypatch.setenv(_JELLYFIN_TOKEN_ENV, "synthetic-jellyfin-value")
+    monkeypatch.setenv(_JELLYFIN_USER_ID_ENV, "synthetic-user")
 
-    response = _client_with(statuses).get("/providers/status")
+    response = cast("Client", TestClient(create_app())).get("/providers/status")
 
     assert response.status_code == HTTPStatus.OK
-    for value in synthetic_values:
+    assert response.text.count("Configured") == _PROVIDER_COUNT
+    for value in _SYNTHETIC_SECRETS:
         assert value not in response.text
 
 
-def test_default_dependency_only_validates_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Serve the page with the default reader without contacting any provider."""
-    monkeypatch.delenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", raising=False)
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", raising=False)
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", raising=False)
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", raising=False)
+def test_default_request_path_renders_malformed_configuration_without_details(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Surface malformed configuration as configuration_error without leaking values."""
+    _clear_provider_environment(monkeypatch)
+    monkeypatch.setenv(_JELLYFIN_BASE_URL_ENV, "https://jellyfin.synthetic.invalid/")
+    monkeypatch.setenv(_JELLYFIN_TOKEN_ENV, "synthetic-jellyfin-value")
+    monkeypatch.setenv(_JELLYFIN_USER_ID_ENV, "synthetic-user")
+    monkeypatch.setenv(_TMDB_TOKEN_ENV, "synthetic-tmdb-value")
+    monkeypatch.setenv(_TMDB_HTTP_TIMEOUT_ENV, "not-a-number")
+
+    response = cast("Client", TestClient(create_app())).get("/providers/status")
+
+    assert response.status_code == HTTPStatus.OK
+    assert "Last known operation: Configuration error" in response.text
+    for value in (*_SYNTHETIC_SECRETS, "not-a-number", "synthetic-tmdb-value"):
+        assert value not in response.text
+
+
+def test_default_request_path_reports_absent_configuration_as_neutral(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve the page with no provider configuration as a neutral, non-error state."""
+    _clear_provider_environment(monkeypatch)
 
     response = cast("Client", TestClient(create_app())).get("/providers/status")
 
     assert response.status_code == HTTPStatus.OK
     assert response.text.count("Not configured") == _PROVIDER_COUNT
     assert response.text.count("No recorded operation") == _PROVIDER_COUNT
+    assert "Configuration error" not in response.text

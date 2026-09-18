@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Protocol, final
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic_settings import SettingsError
 
 from media_recommender.config import JellyfinSettings, TmdbSettings
@@ -58,6 +58,20 @@ class ProviderStatus(BaseModel):
     operational: OperationalState = OperationalState.NO_RECORDED_OPERATION
     observed_at: datetime | None = None
 
+    @field_validator("observed_at")
+    @classmethod
+    def _require_timezone_aware_timestamp(cls, value: datetime | None) -> datetime | None:
+        """Reject naive timestamps to keep rendered times unambiguous.
+
+        :param value: Optional observation timestamp.
+        :return: Validated timestamp.
+        :raises ValueError: If the timestamp is naive (without UTC offset).
+        """
+        if value is not None and value.tzinfo is None:
+            message = "observed_at must be timezone-aware"
+            raise ValueError(message)
+        return value
+
     def model_post_init(self, __context: object, /) -> None:
         """Reject timestamps paired with an absent recorded operation.
 
@@ -87,8 +101,11 @@ class ProviderStatusReader(Protocol):
 class DefaultProviderStatusReader:
     """Default reader deriving configuration state without provider activity.
 
-    Operational state is always reported as ``no_recorded_operation`` until a
-    future workflow safely supplies a real outcome through this contract.
+    Absent provider configuration is reported as ``no_recorded_operation``,
+    while present but malformed configuration surfaces as
+    ``configuration_error``. No validation details, credentials, or URLs are
+    exposed, and no future workflow outcome can be recorded until one is
+    safely supplied through this contract.
     """
 
     def read_provider_statuses(self) -> Sequence[ProviderStatus]:
@@ -97,41 +114,41 @@ class DefaultProviderStatusReader:
         :return: Status snapshots in a stable provider order.
         """
         return (
-            ProviderStatus(
-                provider=ProviderKind.TMDB,
-                configuration=_tmdb_configuration_state(),
-            ),
-            ProviderStatus(
-                provider=ProviderKind.JELLYFIN,
-                configuration=_jellyfin_configuration_state(),
-            ),
+            _provider_status(ProviderKind.TMDB, TmdbSettings),
+            _provider_status(ProviderKind.JELLYFIN, JellyfinSettings),
         )
 
 
-def _configuration_state(settings_type: type[TmdbSettings | JellyfinSettings]) -> ConfigurationState:
-    """Validate a provider settings model and map the outcome to a safe state.
+def _provider_status(provider: ProviderKind, settings_type: type[TmdbSettings | JellyfinSettings]) -> ProviderStatus:
+    """Validate a provider settings model and map the outcome to a safe snapshot.
 
+    Missing required configuration values are a neutral absence; values that
+    are present but invalid surface as ``configuration_error`` without any
+    validation details.
+
+    :param provider: Provider the snapshot describes.
     :param settings_type: Provider settings model to validate from the environment.
-    :return: Configuration state derived from settings validation only.
+    :return: Safe configuration and operational state snapshot.
     """
     try:
         settings_type()  # pyright: ignore[reportCallIssue] - BaseSettings supplies required values from env.
-    except SettingsError, ValidationError:
-        return ConfigurationState.NOT_CONFIGURED
-    return ConfigurationState.CONFIGURED
+    except SettingsError:
+        return _malformed_status(provider)
+    except ValidationError as errors:
+        if all(error["type"] == "missing" for error in errors.errors()):
+            return ProviderStatus(provider=provider, configuration=ConfigurationState.NOT_CONFIGURED)
+        return _malformed_status(provider)
+    return ProviderStatus(provider=provider, configuration=ConfigurationState.CONFIGURED)
 
 
-def _tmdb_configuration_state() -> ConfigurationState:
-    """Validate TMDB settings and map the outcome to a safe state.
+def _malformed_status(provider: ProviderKind) -> ProviderStatus:
+    """Build the snapshot for present but malformed provider configuration.
 
-    :return: Configuration state derived from settings validation only.
+    :param provider: Provider the snapshot describes.
+    :return: Snapshot with ``configuration_error`` and no extra details.
     """
-    return _configuration_state(TmdbSettings)
-
-
-def _jellyfin_configuration_state() -> ConfigurationState:
-    """Validate Jellyfin settings and map the outcome to a safe state.
-
-    :return: Configuration state derived from settings validation only.
-    """
-    return _configuration_state(JellyfinSettings)
+    return ProviderStatus(
+        provider=provider,
+        configuration=ConfigurationState.NOT_CONFIGURED,
+        operational=OperationalState.CONFIGURATION_ERROR,
+    )
