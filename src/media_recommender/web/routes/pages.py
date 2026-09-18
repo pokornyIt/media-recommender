@@ -6,10 +6,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates  # noqa: TC002 - FastAPI resolves this dependency annotation at runtime.
-from pydantic import ValidationError
-from pydantic_settings import SettingsError
 
-from media_recommender.config import JellyfinSettings, Settings, TmdbSettings
+from media_recommender.application.provider_status import (
+    DefaultProviderStatusReader,
+    ProviderStatusReader,
+    is_jellyfin_configured,
+    is_tmdb_configured,
+)
+from media_recommender.config import Settings
 from media_recommender.web.schemas.health import LivenessResponse
 
 router = APIRouter()
@@ -33,30 +37,6 @@ def get_templates(request: Request) -> Jinja2Templates:
     return request.app.state.templates
 
 
-def _is_tmdb_configured() -> bool:
-    """Return whether the configured TMDB values can construct its settings model.
-
-    :return: Whether TMDB settings validation succeeds.
-    """
-    try:
-        TmdbSettings()  # pyright: ignore[reportCallIssue] - BaseSettings supplies required values from env.
-    except SettingsError, ValidationError:
-        return False
-    return True
-
-
-def _is_jellyfin_configured() -> bool:
-    """Return whether the configured Jellyfin values can construct its settings model.
-
-    :return: Whether Jellyfin settings validation succeeds.
-    """
-    try:
-        JellyfinSettings()  # pyright: ignore[reportCallIssue] - BaseSettings supplies required values from env.
-    except SettingsError, ValidationError:
-        return False
-    return True
-
-
 def get_settings_page_context() -> SettingsPageContext:
     """Return the safe runtime configuration facts required by the settings page.
 
@@ -64,10 +44,21 @@ def get_settings_page_context() -> SettingsPageContext:
     """
     settings = Settings()
     return SettingsPageContext(
-        tmdb_configured=_is_tmdb_configured(),
-        jellyfin_configured=_is_jellyfin_configured(),
+        tmdb_configured=is_tmdb_configured(),
+        jellyfin_configured=is_jellyfin_configured(),
         default_region=settings.default_region,
     )
+
+
+_DEFAULT_PROVIDER_STATUS_READER = DefaultProviderStatusReader()
+
+
+def get_provider_status_reader() -> ProviderStatusReader:
+    """Return the default safe provider status reader.
+
+    :return: Read-only provider status source replaceable through dependency overrides.
+    """
+    return _DEFAULT_PROVIDER_STATUS_READER
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -98,6 +89,22 @@ async def settings(
     :return: Shared-layout settings page.
     """
     return templates.TemplateResponse(request, "settings.html", {"settings": context})
+
+
+@router.get("/providers/status", response_class=HTMLResponse)
+async def provider_status(
+    request: Request,
+    templates: Annotated[Jinja2Templates, Depends(get_templates)],
+    reader: Annotated[ProviderStatusReader, Depends(get_provider_status_reader)],
+) -> HTMLResponse:
+    """Render safe provider configuration and latest known operational state.
+
+    :param request: Incoming browser request.
+    :param templates: Shared Jinja2 template renderer.
+    :param reader: Injected read-only provider status source.
+    :return: Shared-layout provider status page.
+    """
+    return templates.TemplateResponse(request, "provider_status.html", {"providers": reader.read_statuses()})
 
 
 @router.get("/health/live", response_model=LivenessResponse)

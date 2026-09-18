@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Provider status · Media Recommender{% endblock %}
+
+{% block content %}
+<h1>Provider status</h1>
+<p>
+  This page reports the saved configuration state and the latest known operation result for each provider.
+  It does not contact providers and does not start imports, synchronizations, or retries.
+</p>
+<p>Configured means the saved settings are valid; it does not verify provider connectivity.</p>
+<table>
+  <caption>Provider configuration and latest known operational state</caption>
+  <thead>
+    <tr>
+      <th scope="col">Provider</th>
+      <th scope="col">Configuration</th>
+      <th scope="col">Latest known operation</th>
+      <th scope="col">Recorded at</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for provider in providers %}
+    <tr>
+      <th scope="row">{{ provider.display_name }}</th>
+      <td>
+        {% if provider.configuration.value == "configured" %}
+        Configured
+        {% else %}
+        Not configured
+        {% endif %}
+      </td>
+      <td>
+        {% if provider.operation.value == "no_recorded_operation" %}
+        No recorded operation
+        {% elif provider.operation.value == "success" %}
+        Last operation succeeded
+        {% elif provider.operation.value == "transient_failure" %}
+        Last operation failed temporarily
+        {% elif provider.operation.value == "configuration_error" %}
+        Configuration error
+        {% endif %}
+      </td>
+      <td>
+        {% if provider.observed_at is not none %}
+        <time datetime="{{ provider.observed_at.isoformat() }}">{{ provider.observed_at.isoformat() }}</time>
+        {% else %}
+        Not recorded
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
