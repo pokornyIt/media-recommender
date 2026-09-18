@@ -17,12 +17,8 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 
-_TMDB_REQUIRED_ENV = ("MEDIA_RECOMMENDER_TMDB_API_TOKEN",)
-_JELLYFIN_REQUIRED_ENV = (
-    "MEDIA_RECOMMENDER_JELLYFIN_BASE_URL",
-    "MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN",
-    "MEDIA_RECOMMENDER_JELLYFIN_USER_ID",
-)
+_TMDB_ENV_PREFIX = "MEDIA_RECOMMENDER_TMDB_"
+_JELLYFIN_ENV_PREFIX = "MEDIA_RECOMMENDER_JELLYFIN_"
 
 
 class ProviderConfigurationState(StrEnum):
@@ -116,16 +112,17 @@ def is_jellyfin_configured() -> bool:
     return True
 
 
-def _has_present_setting(names: tuple[str, ...]) -> bool:
-    """Return whether any named environment setting has a non-blank value.
+def _has_supplied_setting(prefix: str) -> bool:
+    """Return whether any environment setting with the prefix was supplied.
 
-    Only the presence of a value is inspected; configured values are never read
-    into the status model.
+    A setting counts as supplied when its name is present in the environment,
+    even when its value is blank. Only names are inspected; configured values
+    are never read into the status model.
 
-    :param names: Environment variable names to inspect.
-    :return: Whether at least one setting is present and not blank.
+    :param prefix: Environment variable name prefix identifying provider settings.
+    :return: Whether at least one matching setting was supplied.
     """
-    return any(os.environ.get(name, "").strip() for name in names)
+    return any(name.startswith(prefix) for name in os.environ)
 
 
 def _tmdb_configuration_state() -> ProviderConfigurationState:
@@ -135,7 +132,7 @@ def _tmdb_configuration_state() -> ProviderConfigurationState:
     """
     if is_tmdb_configured():
         return ProviderConfigurationState.CONFIGURED
-    if _has_present_setting(_TMDB_REQUIRED_ENV):
+    if _has_supplied_setting(_TMDB_ENV_PREFIX):
         return ProviderConfigurationState.MISCONFIGURED
     return ProviderConfigurationState.NOT_CONFIGURED
 
@@ -147,7 +144,7 @@ def _jellyfin_configuration_state() -> ProviderConfigurationState:
     """
     if is_jellyfin_configured():
         return ProviderConfigurationState.CONFIGURED
-    if _has_present_setting(_JELLYFIN_REQUIRED_ENV):
+    if _has_supplied_setting(_JELLYFIN_ENV_PREFIX):
         return ProviderConfigurationState.MISCONFIGURED
     return ProviderConfigurationState.NOT_CONFIGURED
 

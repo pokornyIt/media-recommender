@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, fields
 from datetime import UTC, datetime, timedelta, tzinfo
 
@@ -13,6 +14,8 @@ from media_recommender.application.provider_status import (
     ProviderOperationalState,
     ProviderStatus,
 )
+
+_PROVIDER_ENV_PREFIXES = ("MEDIA_RECOMMENDER_TMDB_", "MEDIA_RECOMMENDER_JELLYFIN_")
 
 
 class _NaiveTzInfo(tzinfo):
@@ -38,6 +41,16 @@ class _NaiveTzInfo(tzinfo):
         :return: Always ``None``.
         """
         return None
+
+
+def _clear_provider_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every synthetic provider setting from the environment.
+
+    :param monkeypatch: Pytest environment patcher.
+    """
+    for name in list(os.environ):
+        if name.startswith(_PROVIDER_ENV_PREFIXES):
+            monkeypatch.delenv(name, raising=False)
 
 
 def test_status_accepts_timezone_aware_timestamp() -> None:
@@ -165,10 +178,7 @@ def test_operational_states_are_limited_to_safe_values() -> None:
 
 def test_default_reader_reports_unconfigured_without_recorded_operation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Derive unconfigured state and no recorded operation from absent settings."""
-    monkeypatch.delenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", raising=False)
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", raising=False)
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", raising=False)
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", raising=False)
+    _clear_provider_environment(monkeypatch)
 
     statuses = DefaultProviderStatusReader().read_statuses()
 
@@ -180,6 +190,7 @@ def test_default_reader_reports_unconfigured_without_recorded_operation(monkeypa
 
 def test_default_reader_reports_configured_without_recorded_operation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Derive configured state from complete synthetic settings."""
+    _clear_provider_environment(monkeypatch)
     monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", "synthetic-tmdb-value")
     monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", "https://jellyfin.synthetic.invalid/")
     monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", "synthetic-jellyfin-value")
@@ -195,11 +206,9 @@ def test_default_reader_reports_malformed_tmdb_configuration_as_configuration_er
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Surface present-but-invalid TMDB settings as a safe configuration error."""
+    _clear_provider_environment(monkeypatch)
     monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", "synthetic-tmdb-value")
     monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_HTTP__CONNECT_TIMEOUT_SECONDS", "not-a-number")
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", raising=False)
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", raising=False)
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", raising=False)
 
     statuses = {status.provider_id: status for status in DefaultProviderStatusReader().read_statuses()}
 
@@ -214,11 +223,11 @@ def test_default_reader_reports_malformed_jellyfin_configuration_as_configuratio
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Surface present-but-invalid Jellyfin settings as a safe configuration error."""
+    _clear_provider_environment(monkeypatch)
     monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", "https://jellyfin.synthetic.invalid/")
     monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", "synthetic-jellyfin-value")
     monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", "synthetic-user")
     monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_HTTP__CONNECT_TIMEOUT_SECONDS", "not-a-number")
-    monkeypatch.delenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", raising=False)
 
     statuses = {status.provider_id: status for status in DefaultProviderStatusReader().read_statuses()}
 
@@ -228,12 +237,50 @@ def test_default_reader_reports_malformed_jellyfin_configuration_as_configuratio
     assert statuses["tmdb"].operation is ProviderOperationalState.NO_RECORDED_OPERATION
 
 
+def test_default_reader_reports_blank_required_value_as_misconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Treat an explicitly supplied blank required value as malformed configuration."""
+    _clear_provider_environment(monkeypatch)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", "")
+
+    statuses = {status.provider_id: status for status in DefaultProviderStatusReader().read_statuses()}
+
+    assert statuses["tmdb"].configuration is ProviderConfigurationState.MISCONFIGURED
+    assert statuses["tmdb"].operation is ProviderOperationalState.CONFIGURATION_ERROR
+    assert statuses["jellyfin"].configuration is ProviderConfigurationState.NOT_CONFIGURED
+
+
+def test_default_reader_reports_blank_jellyfin_required_values_as_misconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Treat explicitly supplied blank Jellyfin required values as malformed configuration."""
+    _clear_provider_environment(monkeypatch)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", "")
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", "")
+    monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", "")
+
+    statuses = {status.provider_id: status for status in DefaultProviderStatusReader().read_statuses()}
+
+    assert statuses["jellyfin"].configuration is ProviderConfigurationState.MISCONFIGURED
+    assert statuses["jellyfin"].operation is ProviderOperationalState.CONFIGURATION_ERROR
+    assert statuses["tmdb"].configuration is ProviderConfigurationState.NOT_CONFIGURED
+
+
+def test_default_reader_reports_malformed_optional_setting_as_misconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Treat a malformed optional setting without required values as malformed configuration."""
+    _clear_provider_environment(monkeypatch)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_HTTP__CONNECT_TIMEOUT_SECONDS", "not-a-number")
+
+    statuses = {status.provider_id: status for status in DefaultProviderStatusReader().read_statuses()}
+
+    assert statuses["tmdb"].configuration is ProviderConfigurationState.MISCONFIGURED
+    assert statuses["tmdb"].operation is ProviderOperationalState.CONFIGURATION_ERROR
+    assert statuses["jellyfin"].configuration is ProviderConfigurationState.NOT_CONFIGURED
+
+
 def test_default_reader_treats_partial_configuration_as_misconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
     """Treat a partially supplied configuration as malformed rather than absent."""
-    monkeypatch.delenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", raising=False)
+    _clear_provider_environment(monkeypatch)
     monkeypatch.setenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", "synthetic-user")
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", raising=False)
-    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", raising=False)
 
     statuses = {status.provider_id: status for status in DefaultProviderStatusReader().read_statuses()}
 
@@ -244,6 +291,7 @@ def test_default_reader_treats_partial_configuration_as_misconfigured(monkeypatc
 
 def test_default_reader_does_not_expose_synthetic_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep configured secrets, URLs, and identifiers out of the safe status model."""
+    _clear_provider_environment(monkeypatch)
     tmdb_value = "synthetic-tmdb-value"
     jellyfin_url = "https://jellyfin.synthetic.invalid/"
     jellyfin_value = "synthetic-jellyfin-value"
