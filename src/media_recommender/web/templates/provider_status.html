@@ -26,6 +26,8 @@
       <td>
         {% if provider.configuration.value == "configured" %}
         Configured
+        {% elif provider.configuration.value == "misconfigured" %}
+        Misconfigured
         {% else %}
         Not configured
         {% endif %}

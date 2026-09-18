@@ -129,7 +129,7 @@ def test_provider_status_distinguishes_transient_failure_from_configuration_erro
         ProviderStatus(
             provider_id="jellyfin",
             display_name="Jellyfin",
-            configuration=ProviderConfigurationState.NOT_CONFIGURED,
+            configuration=ProviderConfigurationState.MISCONFIGURED,
             operation=ProviderOperationalState.CONFIGURATION_ERROR,
         ),
     )
@@ -141,8 +141,8 @@ def test_provider_status_distinguishes_transient_failure_from_configuration_erro
     assert "Configuration error" in response.text
 
 
-def test_provider_status_does_not_leak_synthetic_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep synthetic secrets, URLs, and identifiers out of the rendered page."""
+def test_provider_status_does_not_leak_valid_synthetic_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep valid synthetic secrets, URLs, and identifiers out of the response."""
     tmdb_value = "synthetic-tmdb-value"
     jellyfin_url = "https://jellyfin.synthetic.invalid/"
     jellyfin_value = "synthetic-jellyfin-value"
@@ -155,7 +155,31 @@ def test_provider_status_does_not_leak_synthetic_configuration(monkeypatch: pyte
     response = _client(create_app()).get("/providers/status")
 
     assert response.status_code == HTTPStatus.OK
+    assert "Not configured" not in response.text
+    assert "Misconfigured" not in response.text
+    assert "Configuration error" not in response.text
     for value in (tmdb_value, jellyfin_url, jellyfin_value, jellyfin_user_id):
+        assert value not in response.text
+
+
+def test_provider_status_does_not_leak_malformed_synthetic_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep malformed synthetic values out of the response while reporting a configuration error."""
+    tmdb_value = "synthetic-tmdb-value"
+    malformed_value = "not-a-number"
+    monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_API_TOKEN", tmdb_value)
+    monkeypatch.setenv("MEDIA_RECOMMENDER_TMDB_HTTP__CONNECT_TIMEOUT_SECONDS", malformed_value)
+    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_BASE_URL", raising=False)
+    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN", raising=False)
+    monkeypatch.delenv("MEDIA_RECOMMENDER_JELLYFIN_USER_ID", raising=False)
+
+    response = _client(create_app()).get("/providers/status")
+
+    assert response.status_code == HTTPStatus.OK
+    assert "Misconfigured" in response.text
+    assert "Configuration error" in response.text
+    assert "Not configured" in response.text
+    assert "No recorded operation" in response.text
+    for value in (tmdb_value, malformed_value):
         assert value not in response.text
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
@@ -16,10 +17,19 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 
+_TMDB_REQUIRED_ENV = ("MEDIA_RECOMMENDER_TMDB_API_TOKEN",)
+_JELLYFIN_REQUIRED_ENV = (
+    "MEDIA_RECOMMENDER_JELLYFIN_BASE_URL",
+    "MEDIA_RECOMMENDER_JELLYFIN_API_TOKEN",
+    "MEDIA_RECOMMENDER_JELLYFIN_USER_ID",
+)
+
+
 class ProviderConfigurationState(StrEnum):
     """Safe configuration state of one provider."""
 
     CONFIGURED = "configured"
+    MISCONFIGURED = "misconfigured"
     NOT_CONFIGURED = "not_configured"
 
 
@@ -43,10 +53,11 @@ class ProviderStatus:
     observed_at: datetime | None = None
 
     def __post_init__(self) -> None:
-        """Validate provider labels and the optional observation timestamp.
+        """Validate provider labels, timestamp awareness, and state consistency.
 
-        :raises ValueError: If a label is blank, the timestamp is timezone-naive,
-            or an absent operation carries an observation time.
+        :raises ValueError: If a label is blank, the timestamp has no UTC offset,
+            an absent operation carries an observation time, or a malformed
+            configuration is not reported as a configuration error.
         """
         provider_id = self.provider_id.strip()
         display_name = self.display_name.strip()
@@ -54,12 +65,18 @@ class ProviderStatus:
             msg = "Provider identifier and display name must not be empty"
             raise ValueError(msg)
         if self.observed_at is not None:
-            if self.observed_at.tzinfo is None:
+            if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
                 msg = "Provider status timestamp must be timezone-aware"
                 raise ValueError(msg)
             if self.operation is ProviderOperationalState.NO_RECORDED_OPERATION:
                 msg = "No recorded operation must not carry a timestamp"
                 raise ValueError(msg)
+        if (
+            self.configuration is ProviderConfigurationState.MISCONFIGURED
+            and self.operation is not ProviderOperationalState.CONFIGURATION_ERROR
+        ):
+            msg = "Malformed provider configuration must be reported as a configuration error"
+            raise ValueError(msg)
         object.__setattr__(self, "provider_id", provider_id)
         object.__setattr__(self, "display_name", display_name)
 
@@ -99,6 +116,69 @@ def is_jellyfin_configured() -> bool:
     return True
 
 
+def _has_present_setting(names: tuple[str, ...]) -> bool:
+    """Return whether any named environment setting has a non-blank value.
+
+    Only the presence of a value is inspected; configured values are never read
+    into the status model.
+
+    :param names: Environment variable names to inspect.
+    :return: Whether at least one setting is present and not blank.
+    """
+    return any(os.environ.get(name, "").strip() for name in names)
+
+
+def _tmdb_configuration_state() -> ProviderConfigurationState:
+    """Return the safe configuration state of the TMDB provider.
+
+    :return: Configured, misconfigured, or not-configured state.
+    """
+    if is_tmdb_configured():
+        return ProviderConfigurationState.CONFIGURED
+    if _has_present_setting(_TMDB_REQUIRED_ENV):
+        return ProviderConfigurationState.MISCONFIGURED
+    return ProviderConfigurationState.NOT_CONFIGURED
+
+
+def _jellyfin_configuration_state() -> ProviderConfigurationState:
+    """Return the safe configuration state of the Jellyfin provider.
+
+    :return: Configured, misconfigured, or not-configured state.
+    """
+    if is_jellyfin_configured():
+        return ProviderConfigurationState.CONFIGURED
+    if _has_present_setting(_JELLYFIN_REQUIRED_ENV):
+        return ProviderConfigurationState.MISCONFIGURED
+    return ProviderConfigurationState.NOT_CONFIGURED
+
+
+def _operation_state(configuration: ProviderConfigurationState) -> ProviderOperationalState:
+    """Return the safe operational state implied by a configuration state.
+
+    :param configuration: Safe configuration state derived by the reader.
+    :return: Configuration error for malformed configuration, otherwise no recorded operation.
+    """
+    if configuration is ProviderConfigurationState.MISCONFIGURED:
+        return ProviderOperationalState.CONFIGURATION_ERROR
+    return ProviderOperationalState.NO_RECORDED_OPERATION
+
+
+def _build_status(provider_id: str, display_name: str, configuration: ProviderConfigurationState) -> ProviderStatus:
+    """Build one safe provider status from a derived configuration state.
+
+    :param provider_id: Stable internal provider identifier.
+    :param display_name: Human-readable provider name.
+    :param configuration: Safe configuration state derived without contacting the provider.
+    :return: Safe provider status entry.
+    """
+    return ProviderStatus(
+        provider_id=provider_id,
+        display_name=display_name,
+        configuration=configuration,
+        operation=_operation_state(configuration),
+    )
+
+
 class DefaultProviderStatusReader:
     """Derive safe configuration state without contacting any provider."""
 
@@ -108,24 +188,6 @@ class DefaultProviderStatusReader:
         :return: Safe TMDB and Jellyfin status entries.
         """
         return (
-            ProviderStatus(
-                provider_id="tmdb",
-                display_name="TMDB",
-                configuration=(
-                    ProviderConfigurationState.CONFIGURED
-                    if is_tmdb_configured()
-                    else ProviderConfigurationState.NOT_CONFIGURED
-                ),
-                operation=ProviderOperationalState.NO_RECORDED_OPERATION,
-            ),
-            ProviderStatus(
-                provider_id="jellyfin",
-                display_name="Jellyfin",
-                configuration=(
-                    ProviderConfigurationState.CONFIGURED
-                    if is_jellyfin_configured()
-                    else ProviderConfigurationState.NOT_CONFIGURED
-                ),
-                operation=ProviderOperationalState.NO_RECORDED_OPERATION,
-            ),
+            _build_status("tmdb", "TMDB", _tmdb_configuration_state()),
+            _build_status("jellyfin", "Jellyfin", _jellyfin_configuration_state()),
         )
