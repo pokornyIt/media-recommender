@@ -30,6 +30,13 @@
   <p>Availability refresh completed.</p>
   {% elif result.outcome.value == "partial" %}
   <p>Availability refresh completed with titles that were not refreshed.</p>
+  {% if result.failure and result.failure.value == "authentication" %}
+  <p>TMDB rejected the configured credentials. Check the TMDB configuration and credentials.</p>
+  {% elif result.failure and result.failure.value == "transient" %}
+  <p>TMDB could not be reached. Try again later.</p>
+  {% elif result.failure %}
+  <p>Some titles could not be refreshed because of a provider failure. Try again later.</p>
+  {% endif %}
   {% elif result.outcome.value == "authentication_failure" %}
   <p>TMDB rejected the configured credentials. Check the TMDB configuration and credentials.</p>
   {% elif result.outcome.value == "transient_failure" %}

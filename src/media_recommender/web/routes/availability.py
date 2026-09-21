@@ -60,11 +60,20 @@ class AvailabilityRefreshOutcome(StrEnum):
     UNEXPECTED_FAILURE = "unexpected_failure"
 
 
+class AvailabilityFailureKind(StrEnum):
+    """Privacy-safe aggregate failure classification for a refresh result."""
+
+    AUTHENTICATION = "authentication"
+    TRANSIENT = "transient"
+    PROVIDER = "provider"
+
+
 @dataclass(frozen=True, slots=True)
 class AvailabilityRefreshView:
     """Aggregate-only availability refresh result safe for rendering."""
 
     outcome: AvailabilityRefreshOutcome
+    failure: AvailabilityFailureKind | None = None
     refreshed: int = 0
     unresolved: int = 0
     ambiguous: int = 0
@@ -236,18 +245,26 @@ def register_availability_exception_handlers(app: FastAPI) -> None:
 def _view_from_report(report: WorkflowReport) -> AvailabilityRefreshView:
     """Map a normalized workflow report to a privacy-safe page result.
 
+    A partial report keeps its partial completion while also exposing a safe
+    aggregate failure classification, so a mixed success and provider failure
+    remains visibly distinct from unresolved or ambiguous titles.
+
     :param report: Streaming-availability workflow report.
     :return: Aggregate-only refresh result without item data.
     """
     counts = report.counts
     if report.status is WorkflowStatus.FAILED:
         outcome = _failure_outcome(report)
+        failure = None
     elif report.status is WorkflowStatus.PARTIAL:
         outcome = AvailabilityRefreshOutcome.PARTIAL
+        failure = _failure_kind(report)
     else:
         outcome = AvailabilityRefreshOutcome.SUCCESS
+        failure = None
     return AvailabilityRefreshView(
         outcome,
+        failure=failure,
         refreshed=counts.succeeded,
         unresolved=counts.unresolved,
         ambiguous=counts.ambiguous,
@@ -256,16 +273,32 @@ def _view_from_report(report: WorkflowReport) -> AvailabilityRefreshView:
     )
 
 
+def _failure_kind(report: WorkflowReport) -> AvailabilityFailureKind | None:
+    """Classify failed items without exposing provider values or raw errors.
+
+    :param report: Availability workflow report.
+    :return: Safe aggregate failure classification, or ``None`` when no item failed.
+    """
+    reasons = {item.reason for item in report.items if item.status is WorkflowItemStatus.FAILED}
+    if WorkflowFailureReason.AUTHENTICATION_FAILURE.value in reasons:
+        return AvailabilityFailureKind.AUTHENTICATION
+    if WorkflowFailureReason.TRANSIENT_FAILURE.value in reasons:
+        return AvailabilityFailureKind.TRANSIENT
+    if reasons:
+        return AvailabilityFailureKind.PROVIDER
+    return None
+
+
 def _failure_outcome(report: WorkflowReport) -> AvailabilityRefreshOutcome:
     """Classify a failed report without exposing provider values or raw errors.
 
     :param report: Failed availability workflow report.
     :return: Distinct safe outcome for authentication, transient, or generic failure.
     """
-    reasons = {item.reason for item in report.items if item.status is WorkflowItemStatus.FAILED}
-    if WorkflowFailureReason.AUTHENTICATION_FAILURE.value in reasons:
+    kind = _failure_kind(report)
+    if kind is AvailabilityFailureKind.AUTHENTICATION:
         return AvailabilityRefreshOutcome.AUTHENTICATION_FAILURE
-    if WorkflowFailureReason.TRANSIENT_FAILURE.value in reasons:
+    if kind is AvailabilityFailureKind.TRANSIENT:
         return AvailabilityRefreshOutcome.TRANSIENT_FAILURE
     return AvailabilityRefreshOutcome.FAILED
 

@@ -832,6 +832,21 @@ def test_availability_facade_includes_items_without_tmdb_identity() -> None:
     assert report.status is WorkflowStatus.PARTIAL
 
 
+def test_availability_facade_reports_invalid_identity_evidence_as_unresolved() -> None:
+    """Report a catalog item whose evidence cannot form a candidate as unresolved."""
+    movie = Movie(id=MediaId.new(), title="...", released_on=date(2020, 1, 1), runtime=Runtime(90))
+    catalog = _FakeCatalogReader({MediaType.MOVIE: [movie]})
+    availability = _RecordingAvailability()
+    orchestrator = _availability_orchestrator(availability, catalog)
+
+    report = asyncio.run(orchestrator.refresh_streaming_availability("CZ"))
+
+    assert availability.calls == []
+    assert report.counts.unresolved == 1
+    assert report.items[0].status is WorkflowItemStatus.UNRESOLVED
+    assert report.status is WorkflowStatus.PARTIAL
+
+
 def test_availability_facade_reports_partial_when_some_items_fail() -> None:
     """Report partial status and only successful removed facts when one item fails."""
     catalog = _FakeCatalogReader(
@@ -849,6 +864,8 @@ def test_availability_facade_reports_partial_when_some_items_fail() -> None:
 
     assert report.status is WorkflowStatus.PARTIAL
     assert (report.counts.succeeded, report.counts.failed, report.counts.removed) == (1, 1, 1)
+    failed_items = [item for item in report.items if item.status is WorkflowItemStatus.FAILED]
+    assert failed_items[0].reason == WorkflowFailureReason.TRANSIENT_FAILURE.value
 
 
 @pytest.mark.parametrize(

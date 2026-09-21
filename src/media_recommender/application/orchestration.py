@@ -122,6 +122,18 @@ class AvailabilityRefreshRequest:
             raise ValueError(msg)
 
 
+_INVALID_IDENTITY_REASON = "invalid_identity_evidence"
+
+
+@dataclass(frozen=True, slots=True)
+class _AvailabilityTarget:
+    """One shared-catalog item selected for a regional availability refresh."""
+
+    position: int
+    region: str
+    candidate: MediaIdentityCandidate | None = None
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Phase2SynchronizationRequest:
     """Configured source inputs for one in-process synchronization pass."""
@@ -267,7 +279,7 @@ class Phase2Orchestrator:
             reports.append(await self._import_netflix_ratings(request))
         reports.append(await self._synchronize_library())
         if request.availability:
-            reports.append(await self._refresh_availability(request.availability))
+            reports.append(await self._refresh_availability(_availability_targets_from_requests(request.availability)))
         return Phase2SynchronizationResult(tuple(reports))
 
     async def import_netflix_viewing(self, path: Path, *, external_profile_id: str) -> WorkflowReport:
@@ -310,8 +322,8 @@ class Phase2Orchestrator:
         :param region: Configured ISO 3166-1 alpha-2 availability region.
         :return: Normalized streaming-availability report.
         """
-        requests = await self._availability_requests(region)
-        return await self._refresh_availability(requests)
+        targets = await self._availability_targets(region)
+        return await self._refresh_availability(targets)
 
     async def recommend(self, criteria: RecommendationCriteria) -> RecommendationResult:
         """Recommend for the implicit default profile.
@@ -379,54 +391,58 @@ class Phase2Orchestrator:
             return _failed_report(WorkflowKind.JELLYFIN_LIBRARY, WorkflowFailureReason.PROVIDER_FAILURE)
         return _library_report(result)
 
-    async def _availability_requests(self, region: str) -> tuple[AvailabilityRefreshRequest, ...]:
+    async def _availability_targets(self, region: str) -> tuple[_AvailabilityTarget, ...]:
         """Enumerate deterministic availability targets from the shared catalog.
 
         Movies are enumerated before TV shows, and the catalog reader already
-        returns items in a stable order. Items that cannot form valid identity
-        evidence are skipped because they cannot be refreshed safely.
+        returns items in a stable order. Every catalog item is represented so
+        that an item whose evidence cannot form a valid identity candidate is
+        still reported as an unresolved target rather than silently omitted.
 
         :param region: Configured ISO 3166-1 alpha-2 availability region.
-        :return: Ordered availability refresh requests.
+        :return: Ordered availability refresh targets.
         :raises RuntimeError: If no shared catalog reader is configured.
         """
         if self._catalog is None:
             msg = "Streaming availability refresh requires a shared catalog reader"
             raise RuntimeError(msg)
-        requests: list[AvailabilityRefreshRequest] = []
+        targets: list[_AvailabilityTarget] = []
         position = 1
         for media_type in (MediaType.MOVIE, MediaType.TV_SHOW):
             async for media in self._catalog.iter_by_type(media_type):
-                candidate = _identity_candidate(media)
-                if candidate is None:
-                    continue
-                requests.append(AvailabilityRefreshRequest(position=position, candidate=candidate, region=region))
+                targets.append(
+                    _AvailabilityTarget(position=position, region=region, candidate=_identity_candidate(media))
+                )
                 position += 1
-        return tuple(requests)
+        return tuple(targets)
 
     async def _refresh_availability(
         self,
-        requests: Sequence[AvailabilityRefreshRequest],
+        targets: Sequence[_AvailabilityTarget],
     ) -> WorkflowReport:
         """Refresh regional items independently so one source error is isolated.
 
         Typed authentication and transient markers are mapped to distinct safe
         reasons before the generic source failure, and no failure text or
-        provider value is placed in the report. A failed item never contributes
+        provider value is placed in the report. A target without valid identity
+        evidence is reported as unresolved, and a failed item never contributes
         removed facts, so a failed refresh cannot claim a completed snapshot.
 
-        :param requests: Ordered availability requests.
+        :param targets: Ordered availability refresh targets.
         :return: Combined normalized availability report.
         """
         items: list[WorkflowItem] = []
         removed = 0
-        for request in sorted(requests, key=lambda item: item.position):
+        for target in sorted(targets, key=lambda item: item.position):
+            if target.candidate is None:
+                items.append(WorkflowItem(target.position, WorkflowItemStatus.UNRESOLVED, _INVALID_IDENTITY_REASON))
+                continue
             try:
-                result = await self._availability.refresh(request.candidate, request.region)
+                result = await self._availability.refresh(target.candidate, target.region)
             except SourceAuthenticationError:
                 items.append(
                     WorkflowItem(
-                        request.position,
+                        target.position,
                         WorkflowItemStatus.FAILED,
                         WorkflowFailureReason.AUTHENTICATION_FAILURE.value,
                     )
@@ -435,7 +451,7 @@ class Phase2Orchestrator:
             except SourceTransientError:
                 items.append(
                     WorkflowItem(
-                        request.position,
+                        target.position,
                         WorkflowItemStatus.FAILED,
                         WorkflowFailureReason.TRANSIENT_FAILURE.value,
                     )
@@ -444,13 +460,13 @@ class Phase2Orchestrator:
             except SourceWorkflowError:
                 items.append(
                     WorkflowItem(
-                        request.position,
+                        target.position,
                         WorkflowItemStatus.FAILED,
                         WorkflowFailureReason.PROVIDER_FAILURE.value,
                     )
                 )
                 continue
-            items.append(_availability_item(request.position, result))
+            items.append(_availability_item(target.position, result))
             removed += result.removed
         return _report(WorkflowKind.STREAMING_AVAILABILITY, tuple(items), removed=removed)
 
@@ -493,6 +509,19 @@ def _library_report(result: LibrarySynchronizationResult) -> WorkflowReport:
         for record in result.records
     )
     return _report(WorkflowKind.JELLYFIN_LIBRARY, items, removed=result.removed)
+
+
+def _availability_targets_from_requests(
+    requests: Sequence[AvailabilityRefreshRequest],
+) -> tuple[_AvailabilityTarget, ...]:
+    """Convert explicit availability requests into internal refresh targets.
+
+    :param requests: Ordered availability requests.
+    :return: Equivalent internal refresh targets.
+    """
+    return tuple(
+        _AvailabilityTarget(position=item.position, region=item.region, candidate=item.candidate) for item in requests
+    )
 
 
 def _identity_candidate(media: Media) -> MediaIdentityCandidate | None:

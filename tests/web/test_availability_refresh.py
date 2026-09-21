@@ -106,6 +106,22 @@ def _failure_report(reason: WorkflowFailureReason) -> WorkflowReport:
     )
 
 
+def _partial_failure_report(reason: WorkflowFailureReason) -> WorkflowReport:
+    """Build a synthetic partial report with one refreshed and one failed item.
+
+    :param reason: Sanitized failure classification for the failed item.
+    :return: Partial synthetic workflow report.
+    """
+    return _report(
+        WorkflowStatus.PARTIAL,
+        WorkflowCounts(succeeded=1, failed=1),
+        (
+            WorkflowItem(1, WorkflowItemStatus.REFRESHED),
+            WorkflowItem(2, WorkflowItemStatus.FAILED, reason.value),
+        ),
+    )
+
+
 def _client(
     service: FakeAvailabilityService,
     *,
@@ -235,7 +251,7 @@ def test_partial_result_does_not_claim_success_or_render_items() -> None:
     item = WorkflowItem(2, WorkflowItemStatus.UNRESOLVED, _SYNTHETIC_REASON, (MediaId.new(),))
     report = _report(
         WorkflowStatus.PARTIAL,
-        WorkflowCounts(succeeded=1, unresolved=2, ambiguous=3, failed=4),
+        WorkflowCounts(succeeded=1, unresolved=2, ambiguous=3),
         (item,),
     )
     service = FakeAvailabilityService(report)
@@ -247,11 +263,41 @@ def test_partial_result_does_not_claim_success_or_render_items() -> None:
     assert response.status_code == HTTPStatus.OK
     assert "not refreshed" in response.text
     assert "Availability refresh completed." not in response.text
+    assert "could not be reached" not in response.text
     assert "<dt>Removed</dt>" in response.text
-    for count in (1, 2, 3, 4):
+    for count in (1, 2, 3):
         assert f"<dd>{count}</dd>" in response.text
     assert _SYNTHETIC_REASON not in response.text
     assert str(item.candidate_ids[0]) not in response.text
+
+
+def test_partial_with_transient_failure_exposes_safe_failure_classification() -> None:
+    """Keep partial completion while exposing a safe transient failure classification."""
+    service = FakeAvailabilityService(_partial_failure_report(WorkflowFailureReason.TRANSIENT_FAILURE))
+    client = _client(service)
+    token = _csrf_token(client)
+
+    response = _post(client, token=token)
+
+    assert response.status_code == HTTPStatus.OK
+    assert "not refreshed" in response.text
+    assert "could not be reached" in response.text
+    assert "Try again later" in response.text
+    assert "transient_failure" not in response.text
+
+
+def test_partial_with_authentication_failure_exposes_safe_failure_classification() -> None:
+    """Keep partial completion while exposing a safe authentication failure classification."""
+    service = FakeAvailabilityService(_partial_failure_report(WorkflowFailureReason.AUTHENTICATION_FAILURE))
+    client = _client(service)
+    token = _csrf_token(client)
+
+    response = _post(client, token=token)
+
+    assert response.status_code == HTTPStatus.OK
+    assert "not refreshed" in response.text
+    assert "credentials" in response.text
+    assert "authentication_failure" not in response.text
 
 
 def test_authentication_failure_is_distinct_and_free_of_raw_reasons() -> None:

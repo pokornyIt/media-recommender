@@ -51,12 +51,14 @@ does not persist operation history, schedule work, or poll; a repeat is a user-i
 
 `Phase2Orchestrator.refresh_streaming_availability()` runs only the regional availability refresh. It enumerates the
 shared catalog through the application-level reader, builds provider-independent identity evidence for every movie and
-TV show, and refreshes the complete regional snapshot for the configured default region. Catalog items without a TMDB
-identity remain in the batch and are reported only in the aggregate unresolved count. The Web refresh page reports only
-aggregate counts: refreshed, unresolved, ambiguous, failed, and removed, and it reports `removed` only for a completed
-snapshot. Absent or invalid TMDB configuration, authentication failure, transient provider failure, partial results, and
-success are distinct safe outcomes. A failed refresh never replaces the previous valid snapshot, and a repeat submission
-is an explicit new snapshot rather than an automatic retry.
+TV show, and refreshes the complete regional snapshot for the configured default region. Every catalog item is
+represented: items without a TMDB identity, or whose evidence cannot form a valid identity candidate, remain in the
+batch and are reported only in the aggregate unresolved count. The Web refresh page reports only aggregate counts:
+refreshed, unresolved, ambiguous, failed, and removed, and it reports `removed` only for a completed snapshot. Absent or
+invalid TMDB configuration, authentication failure, transient provider failure, partial results, and success are
+distinct safe outcomes, and a partial result that includes provider failures also exposes a safe aggregate failure
+classification. A failed refresh never replaces the previous valid snapshot, and a repeat submission is an explicit new
+snapshot rather than an automatic retry.
 
 Imports and complete snapshots are safe to repeat:
 
