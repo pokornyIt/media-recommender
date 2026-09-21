@@ -56,7 +56,7 @@ from media_recommender.domain import (
     Runtime,
     StreamingService,
 )
-from media_recommender.integrations import ProviderUnavailableError
+from media_recommender.integrations import ProviderAuthenticationError, ProviderUnavailableError
 from media_recommender.integrations.jellyfin import JellyfinLibrarySynchronizer
 from media_recommender.integrations.jellyfin.models import JellyfinItemsResponse, JellyfinUser
 from media_recommender.integrations.netflix import NetflixFileImporter
@@ -509,6 +509,112 @@ class _ForbiddenRecommendations:
         """
         del profile_id, criteria
         raise AssertionError
+
+
+class _RecordingLibraryWorkflow:
+    """Record Jellyfin-only facade calls and return a synthetic result."""
+
+    def __init__(self, result: LibrarySynchronizationResult | None = None, *, error: Exception | None = None) -> None:
+        """Store the synthetic result or error.
+
+        :param result: Result returned by a successful call.
+        :param error: Exception raised instead of returning a result.
+        """
+        self._result = result
+        self._error = error
+        self.calls = 0
+
+    async def synchronize(self) -> LibrarySynchronizationResult:
+        """Record one library synchronization call.
+
+        :return: Configured synthetic result.
+        :raises Exception: The configured synthetic error, when present.
+        """
+        self.calls += 1
+        if self._error is not None:
+            raise self._error
+        assert self._result is not None
+        return self._result
+
+
+class _ForbiddenNetflix:
+    """Fail if a Netflix import is invoked."""
+
+    async def import_viewing_activity(self, path: Path, *, external_profile_id: str) -> PersonalImportResult:
+        """Fail if a viewing import is invoked.
+
+        :param path: Staged private CSV path.
+        :param external_profile_id: Requested Netflix profile label.
+        :raises AssertionError: Always, because the Jellyfin-only facade must not import.
+        """
+        del path, external_profile_id
+        raise AssertionError
+
+    async def import_ratings(self, path: Path, *, external_profile_id: str) -> PersonalImportResult:
+        """Fail if a ratings import is invoked.
+
+        :param path: Staged private CSV path.
+        :param external_profile_id: Requested Netflix profile label.
+        :raises AssertionError: Always, because the Jellyfin-only facade must not import.
+        """
+        del path, external_profile_id
+        raise AssertionError
+
+
+def test_jellyfin_only_facade_synchronizes_library_without_other_sources() -> None:
+    """Verify the narrow facade runs only the Jellyfin library synchronization."""
+    library = _RecordingLibraryWorkflow(LibrarySynchronizationResult(records=(), removed=0))
+    orchestrator = Phase2Orchestrator(
+        _ForbiddenProfiles(),
+        _ForbiddenNetflix(),
+        library,
+        _ForbiddenAvailability(),
+        _ForbiddenRecommendations(),
+    )
+
+    report = asyncio.run(orchestrator.synchronize_jellyfin_library())
+
+    assert report.kind is WorkflowKind.JELLYFIN_LIBRARY
+    assert report.status is WorkflowStatus.SUCCESS
+    assert library.calls == 1
+
+
+def test_jellyfin_only_facade_maps_authentication_failure_safely() -> None:
+    """Map an authentication failure to its sanitized failure reason."""
+    library = _RecordingLibraryWorkflow(error=ProviderAuthenticationError())
+    orchestrator = Phase2Orchestrator(
+        _ForbiddenProfiles(),
+        _ForbiddenNetflix(),
+        library,
+        _ForbiddenAvailability(),
+        _ForbiddenRecommendations(),
+    )
+
+    report = asyncio.run(orchestrator.synchronize_jellyfin_library())
+
+    assert report.kind is WorkflowKind.JELLYFIN_LIBRARY
+    assert report.status is WorkflowStatus.FAILED
+    assert report.counts.failed == 1
+    assert report.items[0].reason == "provider_authentication_failure"
+
+
+def test_jellyfin_only_facade_maps_transient_failure_safely() -> None:
+    """Map a transient provider failure to its sanitized failure reason."""
+    library = _RecordingLibraryWorkflow(error=ProviderUnavailableError())
+    orchestrator = Phase2Orchestrator(
+        _ForbiddenProfiles(),
+        _ForbiddenNetflix(),
+        library,
+        _ForbiddenAvailability(),
+        _ForbiddenRecommendations(),
+    )
+
+    report = asyncio.run(orchestrator.synchronize_jellyfin_library())
+
+    assert report.kind is WorkflowKind.JELLYFIN_LIBRARY
+    assert report.status is WorkflowStatus.FAILED
+    assert report.counts.failed == 1
+    assert report.items[0].reason == "provider_transient_failure"
 
 
 def test_netflix_only_facade_imports_viewing_without_other_sources(tmp_path: Path) -> None:

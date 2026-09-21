@@ -5,8 +5,15 @@ identity resolution, filtering, and ranking. `Phase2Orchestrator` is the in-proc
 Web layers. It composes existing application and integration boundaries; it does not write provider payloads directly
 to persistence or require background-job infrastructure.
 
-There is no end-user synchronization UI yet. Callers must construct the configured integrations and application
-services explicitly.
+The Web UI exposes a dedicated Jellyfin synchronization page at `/synchronizations/jellyfin`. It reuses the shared
+session-bound CSRF token and exact-origin check, delegates to the Jellyfin-only
+`Phase2Orchestrator.synchronize_jellyfin_library()` facade, and renders only aggregate counts (synchronized,
+unresolved, ambiguous, invalid, failed, and removed). Absent or invalid configuration disables the control without
+revealing values; authentication and transient provider failures are distinct retryable outcomes. Repeating the form
+runs one fresh complete snapshot; there is no scheduling, polling, or persistent operation history. Netflix imports
+and streaming-availability refreshes are separate interfaces and are never triggered by this page.
+
+Other callers must still construct the configured integrations and application services explicitly.
 
 ## Ownership and supported sources
 

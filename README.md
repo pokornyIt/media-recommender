@@ -160,6 +160,14 @@ shared page layout and static CSS form the responsive, accessible baseline for l
 constraints to the injected Phase 2 recommendation facade and returns only ordered accepted ranked recommendations
 with factual structured explanations. It does not expose rejected candidates, filter decisions, or exclusions.
 
+`GET /synchronizations/jellyfin` renders an accessible Jellyfin synchronization form when the Jellyfin configuration
+validates, and a clear unavailable state otherwise. `POST /synchronizations/jellyfin` enforces the session-bound CSRF
+token and exact-origin check, then delegates to the Jellyfin-only Phase 2 orchestration facade. The page renders
+aggregate counts only (synchronized, unresolved, ambiguous, invalid, failed, and entries no longer in the retrieved
+library snapshot) and never renders provider URLs, tokens, user identifiers, item data, or raw errors. Authentication
+failures and transient provider failures are presented as distinct retryable outcomes; repeating the form runs one
+fresh complete snapshot.
+
 `GET /imports/netflix` renders an accessible multipart form for one Netflix Viewing Activity CSV and a stable profile
 label. `POST /imports/netflix` enforces the configured size limit at the request boundary before multipart parsing,
 then validates the CSRF token, filename, content type, and header before staging the upload in a short-lived private
@@ -168,7 +176,7 @@ persists or renders the upload, filename, or profile label. The default maximum 
 changed with `MEDIA_RECOMMENDER_NETFLIX_UPLOAD_MAX_BYTES`.
 
 The implemented server-rendered UI includes the shared application shell, home page, read-only provider status page,
-and the Netflix Viewing Activity import page. Provider configuration, Jellyfin synchronization controls,
+the Netflix Viewing Activity import page, and the Jellyfin synchronization page. Provider configuration,
 recommendation results, and media-detail and personal-state screens remain future Web work.
 
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or

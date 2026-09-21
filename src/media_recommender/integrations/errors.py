@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from media_recommender.application.errors import SourceWorkflowError
+from media_recommender.application.errors import (
+    SourceAuthenticationError,
+    SourceTransientError,
+    SourceWorkflowError,
+)
 
 
 class ProviderError(SourceWorkflowError):
     """Base class for failures produced by a metadata provider."""
 
 
-class ProviderAuthenticationError(ProviderError):
+class ProviderAuthenticationError(SourceAuthenticationError, ProviderError):
     """Provider rejected the configured credentials."""
 
     def __init__(self) -> None:
@@ -25,7 +29,7 @@ class ProviderTimeoutError(ProviderError):
         super().__init__("Provider request timed out")
 
 
-class ProviderUnavailableError(ProviderError):
+class ProviderUnavailableError(SourceTransientError, ProviderError):
     """Provider failed temporarily or could not be reached."""
 
     def __init__(self) -> None:

@@ -7,7 +7,11 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 from media_recommender.application.availability import AvailabilityRefreshStatus
-from media_recommender.application.errors import SourceWorkflowError
+from media_recommender.application.errors import (
+    SourceAuthenticationError,
+    SourceTransientError,
+    SourceWorkflowError,
+)
 from media_recommender.application.imports import ImportRecordStatus
 from media_recommender.application.library import LibraryItemStatus
 
@@ -60,6 +64,8 @@ class WorkflowFailureReason(StrEnum):
     """Privacy-safe class of a source-level failure."""
 
     PROVIDER_FAILURE = "provider_failure"
+    PROVIDER_AUTHENTICATION_FAILURE = "provider_authentication_failure"
+    PROVIDER_TRANSIENT_FAILURE = "provider_transient_failure"
     LOCAL_SOURCE_FAILURE = "local_source_failure"
 
 
@@ -258,6 +264,17 @@ class Phase2Orchestrator:
             reports.append(await self._refresh_availability(request.availability))
         return Phase2SynchronizationResult(tuple(reports))
 
+    async def synchronize_jellyfin_library(self) -> WorkflowReport:
+        """Synchronize the configured Jellyfin library without running other sources.
+
+        This narrow entry point lets interfaces perform a Jellyfin-only
+        synchronization without triggering Netflix imports or availability
+        refreshes.
+
+        :return: Normalized Jellyfin library report.
+        """
+        return await self._synchronize_library()
+
     async def import_netflix_viewing(self, path: Path, *, external_profile_id: str) -> WorkflowReport:
         """Import one Netflix viewing-activity file without running other sources.
 
@@ -328,6 +345,16 @@ class Phase2Orchestrator:
         """
         try:
             result = await self._library.synchronize()
+        except SourceAuthenticationError:
+            return _failed_report(
+                WorkflowKind.JELLYFIN_LIBRARY,
+                WorkflowFailureReason.PROVIDER_AUTHENTICATION_FAILURE,
+            )
+        except SourceTransientError:
+            return _failed_report(
+                WorkflowKind.JELLYFIN_LIBRARY,
+                WorkflowFailureReason.PROVIDER_TRANSIENT_FAILURE,
+            )
         except SourceWorkflowError:
             return _failed_report(WorkflowKind.JELLYFIN_LIBRARY, WorkflowFailureReason.PROVIDER_FAILURE)
         return _library_report(result)
