@@ -18,6 +18,7 @@ from media_recommender.application import (
     AvailabilityRefreshRequest,
     AvailabilityRefreshResult,
     AvailabilityRefreshService,
+    AvailabilityRefreshStatus,
     AvailabilitySourceKind,
     ImportRecordResult,
     ImportRecordStatus,
@@ -60,6 +61,7 @@ from media_recommender.domain import (
     ProfileId,
     Runtime,
     StreamingService,
+    TVShow,
 )
 from media_recommender.integrations import ProviderAuthenticationError, ProviderUnavailableError
 from media_recommender.integrations.jellyfin import JellyfinLibrarySynchronizer
@@ -75,17 +77,20 @@ from media_recommender.persistence import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import AsyncIterator, Sequence
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from media_recommender.domain import Media
     from media_recommender.persistence.database import SessionFactory
 
 SYNTHETIC_NOW = datetime(2026, 9, 14, 20, tzinfo=UTC)
 PHASE_ONE_REVISION = "14fde284fd0d"
 EXPECTED_AVAILABILITY_REFRESHES = 3
+EXPECTED_AVAILABILITY_TARGETS = 3
 EXPECTED_AMBIGUOUS_CANDIDATES = 2
 EXPECTED_PROVIDER_MAPPINGS = 2
+EXPECTED_REPEAT_REFRESHES = 2
 
 
 class SyntheticIdentityEnricher:
@@ -250,7 +255,7 @@ async def _build_orchestrator(
         clock=lambda: SYNTHETIC_NOW,
     )
     recommendations = RecommendationService(SqlAlchemyRecommendationDataSource(sessions))
-    orchestrator = Phase2Orchestrator(personal, netflix, library, availability, recommendations)
+    orchestrator = Phase2Orchestrator(personal, netflix, library, availability, recommendations, catalog=catalog)
     return (
         engine,
         sessions,
@@ -635,3 +640,281 @@ def test_jellyfin_only_facade_classifies_safe_provider_failures(
     assert report.status is WorkflowStatus.FAILED
     assert report.counts.failed == 1
     assert report.items[0].reason == expected_reason.value
+
+
+class _FakeCatalogReader:
+    """Return configured synthetic media by type in a stable order."""
+
+    def __init__(self, media_by_type: dict[MediaType, list[Media]]) -> None:
+        """Store synthetic media keyed by media type.
+
+        :param media_by_type: Synthetic catalog items per media type.
+        """
+        self._media_by_type = media_by_type
+
+    async def get(self, media_id: MediaId) -> Media | None:
+        """Return no item because the availability facade never reads by identity.
+
+        :param media_id: Requested internal identity.
+        :return: Always ``None``.
+        """
+        del media_id
+        return None
+
+    async def find_by_external_id(self, external_id: ExternalId) -> Media | None:
+        """Return no item because the availability facade never reads by external identity.
+
+        :param external_id: Requested external identity.
+        :return: Always ``None``.
+        """
+        del external_id
+        return None
+
+    async def iter_by_type(self, media_type: MediaType) -> AsyncIterator[Media]:
+        """Yield configured synthetic media for one type.
+
+        :param media_type: Requested kind of media.
+        :yield: Configured synthetic media items.
+        """
+        for media in self._media_by_type.get(media_type, []):
+            yield media
+
+
+class _RecordingAvailability:
+    """Record availability refresh calls and return configured results."""
+
+    def __init__(self, results: Sequence[AvailabilityRefreshResult] | None = None) -> None:
+        """Store the ordered synthetic results.
+
+        :param results: Results returned in call order; a refreshed result is used when exhausted.
+        """
+        self._results = list(results or [])
+        self.calls: list[tuple[MediaIdentityCandidate, str]] = []
+
+    async def refresh(self, candidate: MediaIdentityCandidate, region: str) -> AvailabilityRefreshResult:
+        """Record one refresh call and return the next configured result.
+
+        :param candidate: Identity evidence being refreshed.
+        :param region: Requested region.
+        :return: Configured synthetic refresh result.
+        """
+        self.calls.append((candidate, region))
+        if self._results:
+            return self._results.pop(0)
+        return AvailabilityRefreshResult(AvailabilityRefreshStatus.REFRESHED, available=1)
+
+
+class _SelectiveAvailability:
+    """Fail configured titles and refresh the rest."""
+
+    def __init__(self, *, failing_titles: set[str], error: SourceWorkflowError) -> None:
+        """Store the failing titles and the failure to raise.
+
+        :param failing_titles: Titles that raise the configured failure.
+        :param error: Safe source failure raised for failing titles.
+        """
+        self._failing_titles = failing_titles
+        self._error = error
+        self.calls: list[str] = []
+
+    async def refresh(self, candidate: MediaIdentityCandidate, region: str) -> AvailabilityRefreshResult:
+        """Record one refresh call and fail or succeed by title.
+
+        :param candidate: Identity evidence being refreshed.
+        :param region: Requested region.
+        :return: Refreshed result for non-failing titles.
+        :raises SourceWorkflowError: The configured failure for failing titles.
+        """
+        del region
+        self.calls.append(candidate.title)
+        if candidate.title in self._failing_titles:
+            raise self._error
+        return AvailabilityRefreshResult(AvailabilityRefreshStatus.REFRESHED, available=1, removed=1)
+
+
+class _FailingAvailability:
+    """Raise one configured safe source failure for every refresh."""
+
+    def __init__(self, error: SourceWorkflowError) -> None:
+        """Store the synthetic failure.
+
+        :param error: Exception raised by every refresh.
+        """
+        self._error = error
+        self.calls = 0
+
+    async def refresh(self, candidate: MediaIdentityCandidate, region: str) -> AvailabilityRefreshResult:
+        """Raise the configured synthetic failure.
+
+        :param candidate: Identity evidence that would be refreshed.
+        :param region: Region that would be refreshed.
+        :raises SourceWorkflowError: The configured synthetic error.
+        """
+        del candidate, region
+        self.calls += 1
+        raise self._error
+
+
+def _tv_show(title: str, tmdb_id: str, *, year: int, runtime: int) -> TVShow:
+    """Build one fully normalized synthetic catalog TV show.
+
+    :param title: Synthetic show title.
+    :param tmdb_id: Synthetic TMDB identity value.
+    :param year: Synthetic first-air year.
+    :param runtime: Synthetic episode runtime in minutes.
+    :return: Synthetic catalog TV show.
+    """
+    return TVShow(
+        id=MediaId.new(),
+        title=title,
+        first_aired_on=date(year, 1, 1),
+        episode_runtime=Runtime(runtime),
+        external_ids=frozenset({ExternalId("tmdb", tmdb_id)}),
+    )
+
+
+def _availability_orchestrator(
+    availability: _RecordingAvailability | _SelectiveAvailability | _FailingAvailability,
+    catalog: _FakeCatalogReader,
+) -> Phase2Orchestrator:
+    """Build an orchestrator with only the availability workflow enabled.
+
+    :param availability: Synthetic availability workflow used by the facade.
+    :param catalog: Synthetic shared catalog reader.
+    :return: Orchestrator whose non-availability sources fail if invoked.
+    """
+    return Phase2Orchestrator(
+        _ForbiddenProfiles(),
+        _RecordingNetflixWorkflow(PersonalImportResult(records=())),
+        _ForbiddenLibrary(),
+        availability,
+        _ForbiddenRecommendations(),
+        catalog=catalog,
+    )
+
+
+def test_availability_facade_enumerates_catalog_targets_in_stable_order() -> None:
+    """Enumerate movies before TV shows and refresh each with the configured region."""
+    catalog = _FakeCatalogReader(
+        {
+            MediaType.MOVIE: [
+                _movie("Alpha", "1", year=2020, runtime=90),
+                _movie("Beta", "2", year=2021, runtime=100),
+            ],
+            MediaType.TV_SHOW: [_tv_show("Gamma", "3", year=2019, runtime=45)],
+        }
+    )
+    availability = _RecordingAvailability()
+    orchestrator = _availability_orchestrator(availability, catalog)
+
+    report = asyncio.run(orchestrator.refresh_streaming_availability("CZ"))
+
+    assert report.kind is WorkflowKind.STREAMING_AVAILABILITY
+    assert report.status is WorkflowStatus.SUCCESS
+    assert [candidate.title for candidate, _ in availability.calls] == ["Alpha", "Beta", "Gamma"]
+    assert [region for _, region in availability.calls] == ["CZ", "CZ", "CZ"]
+    assert report.counts.succeeded == EXPECTED_AVAILABILITY_TARGETS
+
+
+def test_availability_facade_includes_items_without_tmdb_identity() -> None:
+    """Include catalog items without TMDB identity and report them as unresolved."""
+    movie = Movie(id=MediaId.new(), title="No Identity", released_on=date(2020, 1, 1), runtime=Runtime(90))
+    catalog = _FakeCatalogReader({MediaType.MOVIE: [movie]})
+    availability = _RecordingAvailability(
+        [AvailabilityRefreshResult(AvailabilityRefreshStatus.SOURCE_ID_MISSING, reason="Missing tmdb media identity")]
+    )
+    orchestrator = _availability_orchestrator(availability, catalog)
+
+    report = asyncio.run(orchestrator.refresh_streaming_availability("CZ"))
+
+    assert len(availability.calls) == 1
+    assert report.counts.unresolved == 1
+    assert report.status is WorkflowStatus.PARTIAL
+
+
+def test_availability_facade_reports_invalid_identity_evidence_as_unresolved() -> None:
+    """Report a catalog item whose evidence cannot form a candidate as unresolved."""
+    movie = Movie(id=MediaId.new(), title="...", released_on=date(2020, 1, 1), runtime=Runtime(90))
+    catalog = _FakeCatalogReader({MediaType.MOVIE: [movie]})
+    availability = _RecordingAvailability()
+    orchestrator = _availability_orchestrator(availability, catalog)
+
+    report = asyncio.run(orchestrator.refresh_streaming_availability("CZ"))
+
+    assert availability.calls == []
+    assert report.counts.unresolved == 1
+    assert report.items[0].status is WorkflowItemStatus.UNRESOLVED
+    assert report.status is WorkflowStatus.PARTIAL
+
+
+def test_availability_facade_reports_partial_when_some_items_fail() -> None:
+    """Report partial status and only successful removed facts when one item fails."""
+    catalog = _FakeCatalogReader(
+        {
+            MediaType.MOVIE: [
+                _movie("Alpha", "1", year=2020, runtime=90),
+                _movie("Beta", "2", year=2021, runtime=100),
+            ]
+        }
+    )
+    availability = _SelectiveAvailability(failing_titles={"Beta"}, error=ProviderUnavailableError())
+    orchestrator = _availability_orchestrator(availability, catalog)
+
+    report = asyncio.run(orchestrator.refresh_streaming_availability("CZ"))
+
+    assert report.status is WorkflowStatus.PARTIAL
+    assert (report.counts.succeeded, report.counts.failed, report.counts.removed) == (1, 1, 1)
+    failed_items = [item for item in report.items if item.status is WorkflowItemStatus.FAILED]
+    assert failed_items[0].reason == WorkflowFailureReason.TRANSIENT_FAILURE.value
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_reason"),
+    [
+        (ProviderAuthenticationError(), WorkflowFailureReason.AUTHENTICATION_FAILURE),
+        (ProviderUnavailableError(), WorkflowFailureReason.TRANSIENT_FAILURE),
+        (SourceWorkflowError("synthetic provider failure"), WorkflowFailureReason.PROVIDER_FAILURE),
+    ],
+)
+def test_availability_facade_classifies_safe_provider_failures(
+    error: SourceWorkflowError,
+    expected_reason: WorkflowFailureReason,
+) -> None:
+    """Map typed provider failures to distinct safe reasons without raw text."""
+    catalog = _FakeCatalogReader({MediaType.MOVIE: [_movie("Alpha", "1", year=2020, runtime=90)]})
+    availability = _FailingAvailability(error)
+    orchestrator = _availability_orchestrator(availability, catalog)
+
+    report = asyncio.run(orchestrator.refresh_streaming_availability("CZ"))
+
+    assert report.status is WorkflowStatus.FAILED
+    assert report.counts.failed == 1
+    assert report.items[0].reason == expected_reason.value
+
+
+def test_availability_facade_repeat_is_a_new_snapshot() -> None:
+    """Treat each explicit facade call as a new refresh rather than an automatic retry."""
+    catalog = _FakeCatalogReader({MediaType.MOVIE: [_movie("Alpha", "1", year=2020, runtime=90)]})
+    availability = _RecordingAvailability()
+    orchestrator = _availability_orchestrator(availability, catalog)
+
+    first = asyncio.run(orchestrator.refresh_streaming_availability("CZ"))
+    second = asyncio.run(orchestrator.refresh_streaming_availability("CZ"))
+
+    assert first.counts.succeeded == 1
+    assert second.counts.succeeded == 1
+    assert len(availability.calls) == EXPECTED_REPEAT_REFRESHES
+
+
+def test_availability_facade_requires_catalog_reader() -> None:
+    """Reject an availability refresh when no shared catalog reader is configured."""
+    orchestrator = Phase2Orchestrator(
+        _ForbiddenProfiles(),
+        _RecordingNetflixWorkflow(PersonalImportResult(records=())),
+        _ForbiddenLibrary(),
+        _ForbiddenAvailability(),
+        _ForbiddenRecommendations(),
+    )
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(orchestrator.refresh_streaming_availability("CZ"))
