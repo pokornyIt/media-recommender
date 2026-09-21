@@ -5,8 +5,11 @@ identity resolution, filtering, and ranking. `Phase2Orchestrator` is the in-proc
 Web layers. It composes existing application and integration boundaries; it does not write provider payloads directly
 to persistence or require background-job infrastructure.
 
-There is no end-user synchronization UI yet. Callers must construct the configured integrations and application
-services explicitly.
+The Jellyfin library can be synchronized from the server-rendered page at `/synchronizations/jellyfin`. The control is
+enabled only for valid Jellyfin configuration, the state-changing `POST` is protected by the session-bound CSRF token
+and exact-origin check, and the route delegates to the Jellyfin-only
+`Phase2Orchestrator.synchronize_jellyfin_library()` facade. Callers of the broader facade must still construct the
+configured integrations and application services explicitly.
 
 ## Ownership and supported sources
 
@@ -31,6 +34,14 @@ credentials are supplied only through the runtime environment described in
 configured selected user. `Phase2Orchestrator.synchronize()` runs operations in stable order and returns one
 `WorkflowReport` per configured source, with normalized counts for successful, skipped, unresolved, ambiguous,
 invalid, failed, and removed records.
+
+`Phase2Orchestrator.synchronize_jellyfin_library()` runs only the Jellyfin library snapshot and never triggers Netflix
+imports or streaming-availability refresh. The Web synchronization page reports only aggregate counts: synchronized,
+unresolved, ambiguous, invalid, failed, and removed. It does not fabricate imported, updated, or skipped library counts,
+and it reports `removed` only for a successfully retrieved complete snapshot. Absent configuration, invalid
+configuration, authentication failure, transient provider failure, partial results, and success are distinct safe
+outcomes that never include provider URLs, tokens, external identities, item data, raw errors, or stack traces. The page
+does not persist operation history, schedule work, or poll; a repeat is a user-initiated new snapshot.
 
 Imports and complete snapshots are safe to repeat:
 

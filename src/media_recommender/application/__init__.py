@@ -14,6 +14,8 @@ from media_recommender.application.errors import (
     InvalidProviderResultError,
     MediaDetailsNotFoundError,
     MetadataProviderNotConfiguredError,
+    SourceAuthenticationError,
+    SourceTransientError,
     SourceWorkflowError,
 )
 from media_recommender.application.identity import (
@@ -180,6 +182,8 @@ __all__ = [
     "RecommendationWarning",
     "RecommendationWarningKind",
     "RecommendationWorkflow",
+    "SourceAuthenticationError",
+    "SourceTransientError",
     "SourceWorkflowError",
     "WatchRequirement",
     "WorkflowCounts",

@@ -16,6 +16,24 @@ class SourceWorkflowError(Exception):
     """Base class for safe source failures handled by orchestration."""
 
 
+class SourceAuthenticationError(SourceWorkflowError):
+    """Safe source failure caused by rejected provider credentials.
+
+    Integration boundaries raise a more specific error that also derives from
+    this application-layer marker, so orchestration can classify the failure
+    without importing an integration package.
+    """
+
+
+class SourceTransientError(SourceWorkflowError):
+    """Safe source failure caused by a temporary provider or network problem.
+
+    Integration boundaries raise a more specific error that also derives from
+    this application-layer marker, so orchestration can classify the failure
+    without importing an integration package.
+    """
+
+
 class MetadataProviderNotConfiguredError(CatalogServiceError):
     """No metadata provider is configured for a requested namespace."""
 
