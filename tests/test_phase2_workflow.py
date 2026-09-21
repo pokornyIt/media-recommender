@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
 from alembic import command
 from alembic.config import Config
 
@@ -20,6 +21,8 @@ from media_recommender.application import (
     AvailabilitySourceKind,
     ImportRecordResult,
     ImportRecordStatus,
+    LibraryItemResult,
+    LibraryItemStatus,
     LibrarySynchronizationResult,
     MediaIdentityCandidate,
     MediaIdentityResolver,
@@ -30,7 +33,9 @@ from media_recommender.application import (
     RecommendationCriteria,
     RecommendationResult,
     RecommendationService,
+    SourceWorkflowError,
     WatchRequirement,
+    WorkflowFailureReason,
     WorkflowItemStatus,
     WorkflowKind,
     WorkflowReport,
@@ -56,7 +61,7 @@ from media_recommender.domain import (
     Runtime,
     StreamingService,
 )
-from media_recommender.integrations import ProviderUnavailableError
+from media_recommender.integrations import ProviderAuthenticationError, ProviderUnavailableError
 from media_recommender.integrations.jellyfin import JellyfinLibrarySynchronizer
 from media_recommender.integrations.jellyfin.models import JellyfinItemsResponse, JellyfinUser
 from media_recommender.integrations.netflix import NetflixFileImporter
@@ -78,6 +83,7 @@ if TYPE_CHECKING:
 
 SYNTHETIC_NOW = datetime(2026, 9, 14, 20, tzinfo=UTC)
 PHASE_ONE_REVISION = "14fde284fd0d"
+EXPECTED_REMOVED_RECORDS = 2
 EXPECTED_AVAILABILITY_REFRESHES = 3
 EXPECTED_AMBIGUOUS_CANDIDATES = 2
 EXPECTED_PROVIDER_MAPPINGS = 2
@@ -532,3 +538,114 @@ def test_netflix_only_facade_imports_viewing_without_other_sources(tmp_path: Pat
     assert report.status is WorkflowStatus.SUCCESS
     assert report.counts.succeeded == 1
     assert netflix.calls == [(source, "Synthetic profile")]
+
+
+class _RecordingLibraryWorkflow:
+    """Record Jellyfin-only facade calls and return a synthetic result."""
+
+    def __init__(self, result: LibrarySynchronizationResult | None = None, *, error: Exception | None = None) -> None:
+        """Store the synthetic library result or error.
+
+        :param result: Result returned by a successful synchronization.
+        :param error: Exception raised instead of returning a result.
+        """
+        self._result = result
+        self._error = error
+        self.calls = 0
+
+    async def synchronize(self) -> LibrarySynchronizationResult:
+        """Record one library synchronization call.
+
+        :return: Configured synthetic result.
+        :raises Exception: The configured synthetic error, when present.
+        """
+        self.calls += 1
+        if self._error is not None:
+            raise self._error
+        assert self._result is not None
+        return self._result
+
+
+class _ForbiddenNetflixWorkflow:
+    """Fail if any Netflix import is invoked."""
+
+    async def import_viewing_activity(self, path: Path, *, external_profile_id: str) -> PersonalImportResult:
+        """Fail if a viewing-activity import is invoked.
+
+        :param path: Staged private CSV path.
+        :param external_profile_id: Requested Netflix profile label.
+        :raises AssertionError: Always, because the Jellyfin-only facade must not import Netflix data.
+        """
+        del path, external_profile_id
+        raise AssertionError
+
+    async def import_ratings(self, path: Path, *, external_profile_id: str) -> PersonalImportResult:
+        """Fail if a ratings import is invoked.
+
+        :param path: Staged private CSV path.
+        :param external_profile_id: Requested Netflix profile label.
+        :raises AssertionError: Always, because the Jellyfin-only facade must not import Netflix data.
+        """
+        del path, external_profile_id
+        raise AssertionError
+
+
+def test_jellyfin_only_facade_synchronizes_library_without_other_sources() -> None:
+    """Verify the narrow facade runs only the Jellyfin library synchronization."""
+    library = _RecordingLibraryWorkflow(
+        LibrarySynchronizationResult(
+            records=(
+                LibraryItemResult(1, LibraryItemStatus.SYNCHRONIZED),
+                LibraryItemResult(2, LibraryItemStatus.UNRESOLVED),
+                LibraryItemResult(3, LibraryItemStatus.INVALID),
+            ),
+            removed=2,
+        )
+    )
+    orchestrator = Phase2Orchestrator(
+        _ForbiddenProfiles(),
+        _ForbiddenNetflixWorkflow(),
+        library,
+        _ForbiddenAvailability(),
+        _ForbiddenRecommendations(),
+    )
+
+    report = asyncio.run(orchestrator.synchronize_jellyfin_library())
+
+    assert report.kind is WorkflowKind.JELLYFIN_LIBRARY
+    assert report.status is WorkflowStatus.PARTIAL
+    assert report.counts.succeeded == 1
+    assert report.counts.unresolved == 1
+    assert report.counts.invalid == 1
+    assert report.counts.removed == EXPECTED_REMOVED_RECORDS
+    assert library.calls == 1
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_reason"),
+    [
+        (ProviderAuthenticationError, WorkflowFailureReason.PROVIDER_AUTHENTICATION_FAILURE),
+        (ProviderUnavailableError, WorkflowFailureReason.PROVIDER_TRANSIENT_FAILURE),
+        (SourceWorkflowError, WorkflowFailureReason.PROVIDER_FAILURE),
+    ],
+)
+def test_jellyfin_facade_maps_provider_failures_to_safe_reasons(
+    error: type[SourceWorkflowError],
+    expected_reason: WorkflowFailureReason,
+) -> None:
+    """Classify provider failure subtypes into sanitized report reasons."""
+    library = _RecordingLibraryWorkflow(error=error())
+    orchestrator = Phase2Orchestrator(
+        _ForbiddenProfiles(),
+        _ForbiddenNetflixWorkflow(),
+        library,
+        _ForbiddenAvailability(),
+        _ForbiddenRecommendations(),
+    )
+
+    report = asyncio.run(orchestrator.synchronize_jellyfin_library())
+
+    assert report.status is WorkflowStatus.FAILED
+    assert report.counts.failed == 1
+    assert report.items[0].reason == expected_reason.value
+    assert library.calls == 1

@@ -7,7 +7,11 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 from media_recommender.application.availability import AvailabilityRefreshStatus
-from media_recommender.application.errors import SourceWorkflowError
+from media_recommender.application.errors import (
+    ProviderAuthenticationWorkflowError,
+    ProviderTransientWorkflowError,
+    SourceWorkflowError,
+)
 from media_recommender.application.imports import ImportRecordStatus
 from media_recommender.application.library import LibraryItemStatus
 
@@ -60,6 +64,8 @@ class WorkflowFailureReason(StrEnum):
     """Privacy-safe class of a source-level failure."""
 
     PROVIDER_FAILURE = "provider_failure"
+    PROVIDER_AUTHENTICATION_FAILURE = "provider_authentication_failure"
+    PROVIDER_TRANSIENT_FAILURE = "provider_transient_failure"
     LOCAL_SOURCE_FAILURE = "local_source_failure"
 
 
@@ -274,6 +280,17 @@ class Phase2Orchestrator:
         )
         return await self._import_netflix_viewing(request)
 
+    async def synchronize_jellyfin_library(self) -> WorkflowReport:
+        """Synchronize the configured Jellyfin library without running other sources.
+
+        This narrow entry point lets interfaces perform a Jellyfin-only
+        synchronization without triggering Netflix imports or streaming
+        availability refresh.
+
+        :return: Normalized Jellyfin library report.
+        """
+        return await self._synchronize_library()
+
     async def recommend(self, criteria: RecommendationCriteria) -> RecommendationResult:
         """Recommend for the implicit default profile.
 
@@ -324,10 +341,18 @@ class Phase2Orchestrator:
     async def _synchronize_library(self) -> WorkflowReport:
         """Run one complete library retrieval without hiding safe source failures.
 
+        Provider failures are classified into sanitized categories so that
+        interfaces can distinguish authentication problems from transient
+        outages without exposing provider details.
+
         :return: Normalized operation report.
         """
         try:
             result = await self._library.synchronize()
+        except ProviderAuthenticationWorkflowError:
+            return _failed_report(WorkflowKind.JELLYFIN_LIBRARY, WorkflowFailureReason.PROVIDER_AUTHENTICATION_FAILURE)
+        except ProviderTransientWorkflowError:
+            return _failed_report(WorkflowKind.JELLYFIN_LIBRARY, WorkflowFailureReason.PROVIDER_TRANSIENT_FAILURE)
         except SourceWorkflowError:
             return _failed_report(WorkflowKind.JELLYFIN_LIBRARY, WorkflowFailureReason.PROVIDER_FAILURE)
         return _library_report(result)

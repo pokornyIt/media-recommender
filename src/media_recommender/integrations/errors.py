@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from media_recommender.application.errors import SourceWorkflowError
+from media_recommender.application.errors import (
+    ProviderAuthenticationWorkflowError,
+    ProviderTransientWorkflowError,
+    SourceWorkflowError,
+)
 
 
 class ProviderError(SourceWorkflowError):
     """Base class for failures produced by a metadata provider."""
 
 
-class ProviderAuthenticationError(ProviderError):
+class ProviderAuthenticationError(ProviderError, ProviderAuthenticationWorkflowError):
     """Provider rejected the configured credentials."""
 
     def __init__(self) -> None:
@@ -17,7 +21,7 @@ class ProviderAuthenticationError(ProviderError):
         super().__init__("Provider authentication failed")
 
 
-class ProviderTimeoutError(ProviderError):
+class ProviderTimeoutError(ProviderError, ProviderTransientWorkflowError):
     """Provider request exceeded a configured timeout."""
 
     def __init__(self) -> None:
@@ -25,7 +29,7 @@ class ProviderTimeoutError(ProviderError):
         super().__init__("Provider request timed out")
 
 
-class ProviderUnavailableError(ProviderError):
+class ProviderUnavailableError(ProviderError, ProviderTransientWorkflowError):
     """Provider failed temporarily or could not be reached."""
 
     def __init__(self) -> None:
@@ -33,7 +37,7 @@ class ProviderUnavailableError(ProviderError):
         super().__init__("Provider is temporarily unavailable")
 
 
-class ProviderRateLimitError(ProviderError):
+class ProviderRateLimitError(ProviderError, ProviderTransientWorkflowError):
     """Provider rejected a request because its rate limit was reached."""
 
     def __init__(self, *, retry_after_seconds: int | None = None) -> None:

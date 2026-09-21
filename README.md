@@ -168,8 +168,16 @@ persists or renders the upload, filename, or profile label. The default maximum 
 changed with `MEDIA_RECOMMENDER_NETFLIX_UPLOAD_MAX_BYTES`.
 
 The implemented server-rendered UI includes the shared application shell, home page, read-only provider status page,
-and the Netflix Viewing Activity import page. Provider configuration, Jellyfin synchronization controls,
+the Netflix Viewing Activity import page, and the Jellyfin library synchronization page. Provider configuration,
 recommendation results, and media-detail and personal-state screens remain future Web work.
+
+`GET /synchronizations/jellyfin` shows the safe Jellyfin configuration state and enables the synchronization control
+only when the configuration validates. `POST /synchronizations/jellyfin` verifies the session-bound CSRF token and
+origin, then delegates to the Jellyfin-only application facade. The page renders aggregate counts only
+(synchronized, unresolved, ambiguous, invalid, and removed) and distinguishes absent or invalid configuration,
+authentication failure, transient provider failure, partial results, and success without rendering provider URLs,
+tokens, external user IDs, item data, or raw errors. Repeating the synchronization runs a fresh complete snapshot;
+there is no scheduling, polling, or persistent operation history.
 
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
 render ORM records and provider transport DTOs directly. API responses use a common JSON error envelope where an

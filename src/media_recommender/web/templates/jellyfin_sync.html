@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Jellyfin synchronization · Media Recommender{% endblock %}
+
+{% block errors %}
+{% if result and result.outcome.value == "unavailable" %}
+<p>Jellyfin is not configured. Add the Jellyfin configuration before synchronizing.</p>
+{% elif result and result.outcome.value == "invalid_configuration" %}
+<p>The Jellyfin configuration is invalid. Correct the configuration before synchronizing.</p>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<h1>Jellyfin synchronization</h1>
+<p>
+  Synchronize your configured Jellyfin library. The synchronization reads one complete library snapshot
+  and updates your personal library state. It does not change your Jellyfin server.
+</p>
+{% if result and result.configured %}
+<form method="post" action="{{ url_for('submit_jellyfin_sync') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit">Synchronize Jellyfin library</button>
+</form>
+{% else %}
+<p>Synchronization is unavailable until Jellyfin is configured.</p>
+<form method="post" action="{{ url_for('submit_jellyfin_sync') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit" disabled aria-disabled="true">Synchronize Jellyfin library</button>
+</form>
+{% endif %}
+{% if result and result.outcome and result.outcome.value not in ("unavailable", "invalid_configuration") %}
+<section aria-labelledby="sync-result">
+  <h2 id="sync-result">Synchronization result</h2>
+  {% if result.outcome.value == "success" %}
+  <p>Synchronization completed.</p>
+  {% elif result.outcome.value == "partial" %}
+  <p>Synchronization completed with records that were not synchronized. Unresolved, ambiguous, and invalid records were not silently attached.</p>
+  {% elif result.outcome.value == "authentication_failure" %}
+  <p>Jellyfin rejected the configured credentials. Check the Jellyfin configuration and try again.</p>
+  {% elif result.outcome.value == "transient_failure" %}
+  <p>Jellyfin is temporarily unavailable. Try again later.</p>
+  {% elif result.outcome.value in ("failed", "unexpected_failure") %}
+  <p>The synchronization could not be completed. Try again later.</p>
+  {% endif %}
+  {% if result.outcome.value not in ("unexpected_failure", "authentication_failure", "transient_failure", "failed") %}
+  <dl>
+    <dt>Synchronized</dt>
+    <dd>{{ result.synchronized }}</dd>
+    <dt>Unresolved</dt>
+    <dd>{{ result.unresolved }}</dd>
+    <dt>Ambiguous</dt>
+    <dd>{{ result.ambiguous }}</dd>
+    <dt>Invalid</dt>
+    <dd>{{ result.invalid }}</dd>
+    <dt>Removed</dt>
+    <dd>{{ result.removed }}</dd>
+  </dl>
+  <p>Removed entries are items no longer present in the retrieved complete library snapshot.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

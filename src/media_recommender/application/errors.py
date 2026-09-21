@@ -16,6 +16,14 @@ class SourceWorkflowError(Exception):
     """Base class for safe source failures handled by orchestration."""
 
 
+class ProviderAuthenticationWorkflowError(SourceWorkflowError):
+    """Marker for source failures caused by rejected provider credentials."""
+
+
+class ProviderTransientWorkflowError(SourceWorkflowError):
+    """Marker for source failures caused by temporary provider or network outages."""
+
+
 class MetadataProviderNotConfiguredError(CatalogServiceError):
     """No metadata provider is configured for a requested namespace."""
 
