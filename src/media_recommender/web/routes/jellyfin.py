@@ -24,6 +24,8 @@ from media_recommender.application.provider_status import (
 )
 from media_recommender.web.csrf import CsrfValidationError, get_csrf_token, require_csrf_token
 from media_recommender.web.errors import register_exception_handlers
+from media_recommender.web.routes.imports import NETFLIX_IMPORT_PATH
+from media_recommender.web.routes.imports import csrf_rejection_handler as netflix_csrf_rejection_handler
 from media_recommender.web.routes.pages import get_provider_statuses, get_templates
 
 if TYPE_CHECKING:
@@ -62,18 +64,16 @@ class JellyfinSyncView:
     removed: int = 0
 
 
-def get_jellyfin_sync_service(request: Request) -> Phase2Orchestrator:
-    """Return the Jellyfin synchronization facade configured by the composition root.
+class JellyfinSyncBlockedError(Exception):
+    """Raised when synchronization is blocked by the safe configuration gate."""
 
-    :param request: Incoming request carrying the current application instance.
-    :return: Phase 2 application facade.
-    :raises RuntimeError: If no Jellyfin synchronization service is configured.
-    """
-    try:
-        return cast("Phase2Orchestrator", request.app.state.jellyfin_sync_service)
-    except AttributeError as error:
-        msg = "Jellyfin synchronization service is not configured"
-        raise RuntimeError(msg) from error
+    def __init__(self, outcome: JellyfinSyncOutcome | None) -> None:
+        """Initialize the block with its safe configuration outcome.
+
+        :param outcome: Safe blocking outcome for rendering.
+        """
+        super().__init__("Jellyfin synchronization is blocked by configuration")
+        self.outcome = outcome
 
 
 def get_jellyfin_configuration_state() -> tuple[bool, JellyfinSyncOutcome | None]:
@@ -92,6 +92,32 @@ def get_jellyfin_configuration_state() -> tuple[bool, JellyfinSyncOutcome | None
                 return False, JellyfinSyncOutcome.INVALID_CONFIGURATION
             return False, JellyfinSyncOutcome.UNAVAILABLE
     return False, JellyfinSyncOutcome.UNAVAILABLE
+
+
+def get_jellyfin_sync_service(
+    request: Request,
+    configuration: Annotated[tuple[bool, JellyfinSyncOutcome | None], Depends(get_jellyfin_configuration_state)],
+) -> Phase2Orchestrator:
+    """Return the Jellyfin synchronization facade only for valid configuration.
+
+    The safe configuration gate runs before the facade is resolved, so an
+    absent or malformed configuration never reaches the composition root's
+    service.
+
+    :param request: Incoming request carrying the current application instance.
+    :param configuration: Safe configuration state and blocking outcome.
+    :return: Phase 2 application facade.
+    :raises JellyfinSyncBlockedError: If the configuration does not validate.
+    :raises RuntimeError: If no Jellyfin synchronization service is configured.
+    """
+    configured, blocking_outcome = configuration
+    if not configured:
+        raise JellyfinSyncBlockedError(_outcome(blocking_outcome))
+    try:
+        return cast("Phase2Orchestrator", request.app.state.jellyfin_sync_service)
+    except AttributeError as error:
+        msg = "Jellyfin synchronization service is not configured"
+        raise RuntimeError(msg) from error
 
 
 @router.get(JELLYFIN_SYNC_PATH, response_class=HTMLResponse)
@@ -115,17 +141,21 @@ async def jellyfin_sync_page(
 async def submit_jellyfin_sync(
     request: Request,
     templates: Annotated[Jinja2Templates, Depends(get_templates)],
-    service: Annotated[Phase2Orchestrator, Depends(get_jellyfin_sync_service)],
-    configuration: Annotated[tuple[bool, JellyfinSyncOutcome | None], Depends(get_jellyfin_configuration_state)],
     _csrf: Annotated[None, Depends(require_csrf_token)],
+    configuration: Annotated[tuple[bool, JellyfinSyncOutcome | None], Depends(get_jellyfin_configuration_state)],
+    service: Annotated[Phase2Orchestrator, Depends(get_jellyfin_sync_service)],
 ) -> HTMLResponse:
     """Run one Jellyfin library synchronization and render aggregate results.
 
+    Dependencies are ordered so that CSRF validation and the safe
+    configuration gate run before the synchronization facade is resolved; an
+    unconfigured or malformed setup never reaches the facade.
+
     :param request: Incoming browser request.
     :param templates: Shared Jinja2 template renderer.
-    :param service: Injected Jellyfin-only application facade.
-    :param configuration: Safe configuration state and blocking outcome.
     :param _csrf: CSRF validation dependency.
+    :param configuration: Safe configuration state and blocking outcome.
+    :param service: Injected Jellyfin-only application facade.
     :return: Shared-layout synchronization page with a privacy-safe result.
     """
     configured, blocking_outcome = configuration
@@ -163,12 +193,48 @@ async def csrf_rejection_handler(request: Request, _: Exception) -> HTMLResponse
     )
 
 
+async def configuration_blocked_handler(request: Request, error: Exception) -> HTMLResponse:
+    """Render the safe configuration outcome for a blocked synchronization.
+
+    :param request: Incoming blocked request.
+    :param error: The raised configuration block.
+    :return: Shared-layout synchronization page with the safe blocking outcome.
+    """
+    templates: Jinja2Templates = request.app.state.templates
+    outcome = error.outcome if isinstance(error, JellyfinSyncBlockedError) else None
+    return _render(
+        templates,
+        request,
+        JellyfinSyncView(configured=False, outcome=outcome),
+        status_code=HTTPStatus.BAD_REQUEST,
+    )
+
+
+async def dispatch_csrf_rejection(request: Request, error: Exception) -> HTMLResponse:
+    """Route a CSRF rejection to the feature page that received the submission.
+
+    Both server-rendered forms share the session-bound CSRF contract, so a
+    single handler dispatches by request path to keep each feature's safe
+    rejection response.
+
+    :param request: Incoming rejected request.
+    :param error: The raised CSRF validation error.
+    :return: Feature-specific safe rejection page.
+    """
+    if request.url.path.startswith(NETFLIX_IMPORT_PATH):
+        return await netflix_csrf_rejection_handler(request, error)
+    return await csrf_rejection_handler(request, error)
+
+
 def register_jellyfin_exception_handlers(app: FastAPI) -> None:
     """Register error handling introduced by the Jellyfin synchronization page.
 
     :param app: FastAPI application receiving the synchronization-specific handler.
     """
-    handlers: dict[type[Exception], ExceptionHandler] = {CsrfValidationError: csrf_rejection_handler}
+    handlers: dict[type[Exception], ExceptionHandler] = {
+        CsrfValidationError: dispatch_csrf_rejection,
+        JellyfinSyncBlockedError: configuration_blocked_handler,
+    }
     register_exception_handlers(app, handlers)
 
 

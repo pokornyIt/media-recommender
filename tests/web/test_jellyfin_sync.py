@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from http import HTTPStatus
 from typing import TYPE_CHECKING, cast
@@ -17,14 +18,33 @@ from media_recommender.application import (
     WorkflowStatus,
 )
 from media_recommender.web import create_app
+from media_recommender.web.routes.imports import get_netflix_import_service
 from media_recommender.web.routes.jellyfin import get_jellyfin_configuration_state, get_jellyfin_sync_service
 
 if TYPE_CHECKING:
+    import pytest
     from httpx import Client, Response
 
 _SYNTHETIC_PROVIDER_URL = "http://synthetic-jellyfin.invalid"
 _SYNTHETIC_TOKEN = "synthetic-jellyfin-api-token"  # noqa: S105 - synthetic test value, not a real secret.
+
+
+class _UnusedNetflixService:
+    """Fail if any Netflix import is invoked during Jellyfin page tests."""
+
+    async def import_netflix_viewing(self, path: object, *, external_profile_id: str) -> object:
+        """Fail if a Netflix import is invoked.
+
+        :param path: Staged private CSV path.
+        :param external_profile_id: Requested Netflix profile label.
+        :raises AssertionError: Always, because this service must never run.
+        """
+        del path, external_profile_id
+        raise AssertionError
+
+
 _SYNTHETIC_USER_ID = "synthetic-jellyfin-user-id"
+_SYNTHETIC_ITEM_TITLE = "Synthetic Private Movie Title"
 _SYNTHETIC_REASON = "synthetic-private-reason"
 
 
@@ -382,3 +402,135 @@ def test_responses_do_not_leak_secrets_or_provider_details() -> None:
         assert _SYNTHETIC_PROVIDER_URL not in page
         assert _SYNTHETIC_TOKEN not in page
         assert _SYNTHETIC_USER_ID not in page
+
+
+def test_unconfigured_post_without_service_returns_safe_configuration_outcome() -> None:
+    """Resolve the safe configuration outcome on the default path without a facade."""
+    app = create_app()
+    app.dependency_overrides[get_jellyfin_configuration_state] = lambda: (False, "unavailable")
+    client = cast("Client", TestClient(app))
+    token = _csrf_token(client)
+
+    response = _post(client, token=token)
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert "not configured" in response.text
+    assert "Jellyfin synchronization" in response.text
+
+
+def test_invalid_csrf_without_service_returns_forbidden_before_facade_resolution() -> None:
+    """Reject an invalid token on the default path before any facade is resolved."""
+    app = create_app()
+    app.dependency_overrides[get_jellyfin_configuration_state] = lambda: (True, None)
+    client = cast("Client", TestClient(app))
+    _csrf_token(client)
+
+    response = _post(client, token="synthetic-invalid-token")  # noqa: S106 - synthetic test value, not a real secret.
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert "Jellyfin synchronization" in response.text
+
+
+def test_cross_origin_without_service_returns_forbidden_before_facade_resolution() -> None:
+    """Reject a foreign origin on the default path before any facade is resolved."""
+    app = create_app()
+    app.dependency_overrides[get_jellyfin_configuration_state] = lambda: (True, None)
+    client = cast("Client", TestClient(app))
+    token = _csrf_token(client)
+
+    response = _post(client, token=token, origin="http://synthetic-attacker.invalid")
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_netflix_csrf_rejection_renders_the_netflix_page() -> None:
+    """Keep the Netflix rejection response on the Netflix import page."""
+    app = create_app()
+    app.dependency_overrides[get_netflix_import_service] = _UnusedNetflixService
+    client = cast("Client", TestClient(app))
+    _csrf_token(client)
+
+    response = client.post(
+        "/imports/netflix",
+        data={"profile_label": "Synthetic profile", "csrf_token": "synthetic-invalid-token"},
+        files={"upload": ("synthetic-viewing.csv", b"Title,Date\nSynthetic Title,9/14/26\n", "text/csv")},
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert "Netflix" in response.text
+    assert "Jellyfin synchronization" not in response.text
+
+
+def test_jellyfin_csrf_rejection_renders_the_jellyfin_page() -> None:
+    """Keep the Jellyfin rejection response on the Jellyfin synchronization page."""
+    service = FakeJellyfinSyncService(_report(WorkflowStatus.SUCCESS, WorkflowCounts()))
+    client = _client(service)
+    _csrf_token(client)
+
+    response = _post(client, token="synthetic-invalid-token")  # noqa: S106 - synthetic test value, not a real secret.
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert "Jellyfin synchronization" in response.text
+    assert "Netflix import</h1>" not in response.text
+    assert "Viewing Activity" not in response.text
+
+
+def test_sensitive_failure_values_stay_out_of_responses_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Keep synthetic sensitive values out of failure responses and captured logs."""
+    sensitive_error = RuntimeError(
+        f"synthetic failure for {_SYNTHETIC_PROVIDER_URL} token {_SYNTHETIC_TOKEN} "
+        f"user {_SYNTHETIC_USER_ID} item {_SYNTHETIC_ITEM_TITLE}"
+    )
+    service = FakeJellyfinSyncService(error=sensitive_error)
+    client = _client(service)
+    token = _csrf_token(client)
+
+    with caplog.at_level(logging.DEBUG):
+        response = _post(client, token=token)
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    for sensitive in (
+        _SYNTHETIC_PROVIDER_URL,
+        _SYNTHETIC_TOKEN,
+        _SYNTHETIC_USER_ID,
+        _SYNTHETIC_ITEM_TITLE,
+        "synthetic failure",
+        "Traceback",
+    ):
+        assert sensitive not in response.text
+        assert sensitive not in caplog.text
+
+
+def test_sensitive_report_values_stay_out_of_responses_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Keep synthetic sensitive values carried by report items out of output and logs."""
+    sensitive_reason = (
+        f"{_SYNTHETIC_REASON} {_SYNTHETIC_PROVIDER_URL} {_SYNTHETIC_TOKEN} {_SYNTHETIC_USER_ID} {_SYNTHETIC_ITEM_TITLE}"
+    )
+    service = FakeJellyfinSyncService(
+        _report(
+            WorkflowStatus.FAILED,
+            WorkflowCounts(failed=1),
+            (WorkflowItem(1, WorkflowItemStatus.FAILED, sensitive_reason),),
+        )
+    )
+    client = _client(service)
+    token = _csrf_token(client)
+
+    with caplog.at_level(logging.DEBUG):
+        response = _post(client, token=token)
+
+    assert response.status_code == HTTPStatus.OK
+    assert "could not be completed" in response.text
+    for sensitive in (
+        _SYNTHETIC_REASON,
+        _SYNTHETIC_PROVIDER_URL,
+        _SYNTHETIC_TOKEN,
+        _SYNTHETIC_USER_ID,
+        _SYNTHETIC_ITEM_TITLE,
+    ):
+        assert sensitive not in response.text
+        assert sensitive not in caplog.text
