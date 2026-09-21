@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Jellyfin synchronization · Media Recommender{% endblock %}
+
+{% block errors %}
+{% if configuration.value == "absent" %}
+<p>Jellyfin is not configured. Set the required configuration before synchronizing.</p>
+{% elif configuration.value == "invalid" %}
+<p>Jellyfin configuration is invalid. Review the configured values before synchronizing.</p>
+{% endif %}
+{% if result and result.outcome.value == "rejected" %}
+<p>Request rejected. Submit the synchronization form from this page.</p>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<h1>Jellyfin synchronization</h1>
+<p>
+  Run one complete synchronization of the configured Jellyfin user's library. Local library and watch state are
+  updated only after the provider library is retrieved successfully.
+</p>
+<form method="post" action="{{ url_for('submit_jellyfin_sync') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit" {% if configuration.value != "configured" %}disabled{% endif %}>Synchronize Jellyfin library</button>
+</form>
+{% if result %}
+<section aria-labelledby="jellyfin-result">
+  <h2 id="jellyfin-result">Synchronization result</h2>
+  {% if result.outcome.value == "success" %}
+  <p>Synchronization completed.</p>
+  {% elif result.outcome.value == "partial" %}
+  <p>Synchronization completed with library records that were not synchronized.</p>
+  {% elif result.outcome.value == "authentication_failure" %}
+  <p>Jellyfin rejected the configured credentials. Check the Jellyfin configuration and credentials.</p>
+  {% elif result.outcome.value == "transient_failure" %}
+  <p>Jellyfin could not be reached. Try again later.</p>
+  {% elif result.outcome.value in ("failed", "unexpected_failure") %}
+  <p>Synchronization could not be completed. Try again later.</p>
+  {% endif %}
+  {% if result.outcome.value in ("success", "partial", "authentication_failure", "transient_failure", "failed") %}
+  <dl>
+    <dt>Synchronized</dt>
+    <dd>{{ result.synchronized }}</dd>
+    <dt>Unresolved</dt>
+    <dd>{{ result.unresolved }}</dd>
+    <dt>Ambiguous</dt>
+    <dd>{{ result.ambiguous }}</dd>
+    <dt>Invalid</dt>
+    <dd>{{ result.invalid }}</dd>
+    <dt>Failed</dt>
+    <dd>{{ result.failed }}</dd>
+    {% if result.outcome.value in ("success", "partial") %}
+    <dt>Removed</dt>
+    <dd>{{ result.removed }}</dd>
+    {% endif %}
+  </dl>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

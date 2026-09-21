@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
 from alembic import command
 from alembic.config import Config
 
@@ -20,6 +21,8 @@ from media_recommender.application import (
     AvailabilitySourceKind,
     ImportRecordResult,
     ImportRecordStatus,
+    LibraryItemResult,
+    LibraryItemStatus,
     LibrarySynchronizationResult,
     MediaIdentityCandidate,
     MediaIdentityResolver,
@@ -30,7 +33,9 @@ from media_recommender.application import (
     RecommendationCriteria,
     RecommendationResult,
     RecommendationService,
+    SourceWorkflowError,
     WatchRequirement,
+    WorkflowFailureReason,
     WorkflowItemStatus,
     WorkflowKind,
     WorkflowReport,
@@ -56,7 +61,7 @@ from media_recommender.domain import (
     Runtime,
     StreamingService,
 )
-from media_recommender.integrations import ProviderUnavailableError
+from media_recommender.integrations import ProviderAuthenticationError, ProviderUnavailableError
 from media_recommender.integrations.jellyfin import JellyfinLibrarySynchronizer
 from media_recommender.integrations.jellyfin.models import JellyfinItemsResponse, JellyfinUser
 from media_recommender.integrations.netflix import NetflixFileImporter
@@ -532,3 +537,101 @@ def test_netflix_only_facade_imports_viewing_without_other_sources(tmp_path: Pat
     assert report.status is WorkflowStatus.SUCCESS
     assert report.counts.succeeded == 1
     assert netflix.calls == [(source, "Synthetic profile")]
+
+
+class _RecordingLibrary:
+    """Record Jellyfin-only facade calls and return a synthetic result."""
+
+    def __init__(self, result: LibrarySynchronizationResult) -> None:
+        """Store the synthetic library result.
+
+        :param result: Result returned by the library synchronization.
+        """
+        self._result = result
+        self.calls = 0
+
+    async def synchronize(self) -> LibrarySynchronizationResult:
+        """Record one library synchronization call.
+
+        :return: Configured synthetic result.
+        """
+        self.calls += 1
+        return self._result
+
+
+class _FailingLibrary:
+    """Raise one configured safe source failure."""
+
+    def __init__(self, error: SourceWorkflowError) -> None:
+        """Store the synthetic failure.
+
+        :param error: Exception raised by the library synchronization.
+        """
+        self._error = error
+
+    async def synchronize(self) -> LibrarySynchronizationResult:
+        """Raise the configured synthetic failure.
+
+        :raises SourceWorkflowError: The configured synthetic error.
+        """
+        raise self._error
+
+
+def _jellyfin_orchestrator(
+    library: _RecordingLibrary | _FailingLibrary,
+) -> Phase2Orchestrator:
+    """Build an orchestrator with only the library workflow enabled.
+
+    :param library: Synthetic library workflow used by the Jellyfin facade.
+    :return: Orchestrator whose non-Jellyfin sources fail if invoked.
+    """
+    return Phase2Orchestrator(
+        _ForbiddenProfiles(),
+        _RecordingNetflixWorkflow(PersonalImportResult(records=())),
+        library,
+        _ForbiddenAvailability(),
+        _ForbiddenRecommendations(),
+    )
+
+
+def test_jellyfin_only_facade_synchronizes_library_without_other_sources() -> None:
+    """Verify the narrow facade runs only the Jellyfin library synchronization."""
+    library = _RecordingLibrary(
+        LibrarySynchronizationResult(
+            records=(
+                LibraryItemResult(1, LibraryItemStatus.SYNCHRONIZED),
+                LibraryItemResult(2, LibraryItemStatus.UNRESOLVED),
+            ),
+            removed=1,
+        )
+    )
+    orchestrator = _jellyfin_orchestrator(library)
+
+    report = asyncio.run(orchestrator.synchronize_jellyfin_library())
+
+    assert report.kind is WorkflowKind.JELLYFIN_LIBRARY
+    assert report.status is WorkflowStatus.PARTIAL
+    assert library.calls == 1
+    assert (report.counts.succeeded, report.counts.unresolved, report.counts.removed) == (1, 1, 1)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_reason"),
+    [
+        (ProviderAuthenticationError(), WorkflowFailureReason.AUTHENTICATION_FAILURE),
+        (ProviderUnavailableError(), WorkflowFailureReason.TRANSIENT_FAILURE),
+        (SourceWorkflowError("synthetic provider failure"), WorkflowFailureReason.PROVIDER_FAILURE),
+    ],
+)
+def test_jellyfin_only_facade_classifies_safe_provider_failures(
+    error: SourceWorkflowError,
+    expected_reason: WorkflowFailureReason,
+) -> None:
+    """Map typed provider failures to distinct safe reasons without raw text."""
+    orchestrator = _jellyfin_orchestrator(_FailingLibrary(error))
+
+    report = asyncio.run(orchestrator.synchronize_jellyfin_library())
+
+    assert report.status is WorkflowStatus.FAILED
+    assert report.counts.failed == 1
+    assert report.items[0].reason == expected_reason.value

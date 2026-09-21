@@ -167,9 +167,17 @@ temporary file and delegating to the Netflix-only application facade. The page r
 persists or renders the upload, filename, or profile label. The default maximum upload size is 10 MiB and can be
 changed with `MEDIA_RECOMMENDER_NETFLIX_UPLOAD_MAX_BYTES`.
 
+`GET /synchronizations/jellyfin` renders an accessible form for one Jellyfin library synchronization. The control is
+enabled only when Jellyfin configuration is valid, and `POST /synchronizations/jellyfin` applies the same session-bound
+CSRF and exact-origin check before re-validating configuration and delegating to the Jellyfin-only application facade.
+The page renders aggregate, privacy-safe counts only, distinguishes absent or invalid configuration, authentication
+failure, transient provider failure, partial results, and success, and never renders provider URLs, tokens, external
+user identities, item data, or raw errors. A Jellyfin failure does not affect `/settings` or `/providers/status`, and a
+repeat submission is an explicit new snapshot rather than an automatic retry.
+
 The implemented server-rendered UI includes the shared application shell, home page, read-only provider status page,
-and the Netflix Viewing Activity import page. Provider configuration, Jellyfin synchronization controls,
-recommendation results, and media-detail and personal-state screens remain future Web work.
+the Netflix Viewing Activity import page, and the Jellyfin library synchronization page. Provider configuration
+editing, recommendation results, and media-detail and personal-state screens remain future Web work.
 
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
 render ORM records and provider transport DTOs directly. API responses use a common JSON error envelope where an
