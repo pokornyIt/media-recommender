@@ -11,6 +11,12 @@ and exact-origin check, and the route delegates to the Jellyfin-only
 `Phase2Orchestrator.synchronize_jellyfin_library()` facade. Callers of the broader facade must still construct the
 configured integrations and application services explicitly.
 
+Regional streaming availability can be refreshed from the server-rendered page at `/availability/refresh`. The control
+is enabled only for valid TMDB configuration, the state-changing `POST` is protected by the same session-bound CSRF
+token and exact-origin check, and the route delegates to the availability-only
+`Phase2Orchestrator.refresh_streaming_availability()` facade. The page reports only aggregate counts and never renders
+provider URLs, tokens, external identities, item data, raw errors, or stack traces.
+
 ## Ownership and supported sources
 
 Personal state belongs to the deterministic internal default profile returned by `ProfileRepository`. Netflix profile
@@ -42,6 +48,15 @@ and it reports `removed` only for a successfully retrieved complete snapshot. Ab
 configuration, authentication failure, transient provider failure, partial results, and success are distinct safe
 outcomes that never include provider URLs, tokens, external identities, item data, raw errors, or stack traces. The page
 does not persist operation history, schedule work, or poll; a repeat is a user-initiated new snapshot.
+
+`Phase2Orchestrator.refresh_streaming_availability()` runs only the regional availability refresh. It enumerates the
+shared catalog through the application-level reader, builds provider-independent identity evidence for every movie and
+TV show, and refreshes the complete regional snapshot for the configured default region. Catalog items without a TMDB
+identity remain in the batch and are reported only in the aggregate unresolved count. The Web refresh page reports only
+aggregate counts: refreshed, unresolved, ambiguous, failed, and removed, and it reports `removed` only for a completed
+snapshot. Absent or invalid TMDB configuration, authentication failure, transient provider failure, partial results, and
+success are distinct safe outcomes. A failed refresh never replaces the previous valid snapshot, and a repeat submission
+is an explicit new snapshot rather than an automatic retry.
 
 Imports and complete snapshots are safe to repeat:
 

@@ -12,21 +12,23 @@ from media_recommender.application.errors import (
     SourceTransientError,
     SourceWorkflowError,
 )
+from media_recommender.application.identity import MediaIdentityCandidate
 from media_recommender.application.imports import ImportRecordStatus
 from media_recommender.application.library import LibraryItemStatus
+from media_recommender.domain import MediaType, Movie
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
     from media_recommender.application.availability import AvailabilityRefreshResult
-    from media_recommender.application.identity import MediaIdentityCandidate
+    from media_recommender.application.catalog import MediaCatalogReader
     from media_recommender.application.imports import PersonalImportResult
     from media_recommender.application.library import LibrarySynchronizationResult
     from media_recommender.application.personal import ProfileRepository
     from media_recommender.application.ranking import RecommendationResult
     from media_recommender.application.recommendations import RecommendationCriteria
-    from media_recommender.domain import MediaId, ProfileId
+    from media_recommender.domain import Media, MediaId, ProfileId
 
 
 class WorkflowKind(StrEnum):
@@ -223,13 +225,15 @@ class RecommendationWorkflow(Protocol):
 class Phase2Orchestrator:
     """Coordinate provider workflows through existing application boundaries."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - explicit Phase 2 workflow boundaries.
         self,
         profiles: ProfileRepository,
         netflix: NetflixImportWorkflow,
         library: LibrarySynchronizationWorkflow,
         availability: AvailabilityRefreshWorkflow,
         recommendations: RecommendationWorkflow,
+        *,
+        catalog: MediaCatalogReader | None = None,
     ) -> None:
         """Initialize all completed Phase 2 workflow boundaries.
 
@@ -238,12 +242,14 @@ class Phase2Orchestrator:
         :param library: Configured local-library synchronization integration.
         :param availability: Regional streaming refresh application service.
         :param recommendations: Deterministic recommendation application service.
+        :param catalog: Optional shared catalog reader used to enumerate availability targets.
         """
         self._profiles = profiles
         self._netflix = netflix
         self._library = library
         self._availability = availability
         self._recommendations = recommendations
+        self._catalog = catalog
 
     async def synchronize(self, request: Phase2SynchronizationRequest) -> Phase2SynchronizationResult:
         """Run configured sources independently in deterministic order.
@@ -290,6 +296,22 @@ class Phase2Orchestrator:
         :return: Normalized Jellyfin library report.
         """
         return await self._synchronize_library()
+
+    async def refresh_streaming_availability(self, region: str) -> WorkflowReport:
+        """Refresh regional streaming availability for every shared-catalog title.
+
+        This narrow entry point enumerates the shared catalog through the
+        application-level reader, builds provider-independent identity evidence
+        for each movie and TV show, and refreshes the complete regional snapshot
+        for the supplied region. It never triggers Netflix imports, Jellyfin
+        synchronization, or recommendations, and it returns only a normalized
+        aggregate report without item data.
+
+        :param region: Configured ISO 3166-1 alpha-2 availability region.
+        :return: Normalized streaming-availability report.
+        """
+        requests = await self._availability_requests(region)
+        return await self._refresh_availability(requests)
 
     async def recommend(self, criteria: RecommendationCriteria) -> RecommendationResult:
         """Recommend for the implicit default profile.
@@ -357,11 +379,41 @@ class Phase2Orchestrator:
             return _failed_report(WorkflowKind.JELLYFIN_LIBRARY, WorkflowFailureReason.PROVIDER_FAILURE)
         return _library_report(result)
 
+    async def _availability_requests(self, region: str) -> tuple[AvailabilityRefreshRequest, ...]:
+        """Enumerate deterministic availability targets from the shared catalog.
+
+        Movies are enumerated before TV shows, and the catalog reader already
+        returns items in a stable order. Items that cannot form valid identity
+        evidence are skipped because they cannot be refreshed safely.
+
+        :param region: Configured ISO 3166-1 alpha-2 availability region.
+        :return: Ordered availability refresh requests.
+        :raises RuntimeError: If no shared catalog reader is configured.
+        """
+        if self._catalog is None:
+            msg = "Streaming availability refresh requires a shared catalog reader"
+            raise RuntimeError(msg)
+        requests: list[AvailabilityRefreshRequest] = []
+        position = 1
+        for media_type in (MediaType.MOVIE, MediaType.TV_SHOW):
+            async for media in self._catalog.iter_by_type(media_type):
+                candidate = _identity_candidate(media)
+                if candidate is None:
+                    continue
+                requests.append(AvailabilityRefreshRequest(position=position, candidate=candidate, region=region))
+                position += 1
+        return tuple(requests)
+
     async def _refresh_availability(
         self,
         requests: Sequence[AvailabilityRefreshRequest],
     ) -> WorkflowReport:
         """Refresh regional items independently so one source error is isolated.
+
+        Typed authentication and transient markers are mapped to distinct safe
+        reasons before the generic source failure, and no failure text or
+        provider value is placed in the report. A failed item never contributes
+        removed facts, so a failed refresh cannot claim a completed snapshot.
 
         :param requests: Ordered availability requests.
         :return: Combined normalized availability report.
@@ -371,6 +423,24 @@ class Phase2Orchestrator:
         for request in sorted(requests, key=lambda item: item.position):
             try:
                 result = await self._availability.refresh(request.candidate, request.region)
+            except SourceAuthenticationError:
+                items.append(
+                    WorkflowItem(
+                        request.position,
+                        WorkflowItemStatus.FAILED,
+                        WorkflowFailureReason.AUTHENTICATION_FAILURE.value,
+                    )
+                )
+                continue
+            except SourceTransientError:
+                items.append(
+                    WorkflowItem(
+                        request.position,
+                        WorkflowItemStatus.FAILED,
+                        WorkflowFailureReason.TRANSIENT_FAILURE.value,
+                    )
+                )
+                continue
             except SourceWorkflowError:
                 items.append(
                     WorkflowItem(
@@ -423,6 +493,26 @@ def _library_report(result: LibrarySynchronizationResult) -> WorkflowReport:
         for record in result.records
     )
     return _report(WorkflowKind.JELLYFIN_LIBRARY, items, removed=result.removed)
+
+
+def _identity_candidate(media: Media) -> MediaIdentityCandidate | None:
+    """Build provider-independent identity evidence from one catalog item.
+
+    :param media: Shared catalog movie or TV show.
+    :return: Candidate evidence, or ``None`` when the item cannot be a refresh target.
+    """
+    runtime = media.runtime if isinstance(media, Movie) else media.episode_runtime
+    try:
+        return MediaIdentityCandidate(
+            media_type=media.media_type,
+            title=media.title,
+            original_title=media.original_title,
+            release_year=media.release_year,
+            runtime_minutes=runtime.minutes if runtime is not None else None,
+            external_ids=media.external_ids,
+        )
+    except ValueError:
+        return None
 
 
 def _availability_item(position: int, result: AvailabilityRefreshResult) -> WorkflowItem:

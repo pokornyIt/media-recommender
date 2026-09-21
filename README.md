@@ -175,9 +175,19 @@ failure, transient provider failure, partial results, and success, and never ren
 user identities, item data, or raw errors. A Jellyfin failure does not affect `/settings` or `/providers/status`, and a
 repeat submission is an explicit new snapshot rather than an automatic retry.
 
+`GET /availability/refresh` renders an accessible form for one regional streaming-availability refresh. The control is
+enabled only when TMDB configuration is valid, and `POST /availability/refresh` applies the same session-bound CSRF and
+exact-origin check before re-validating configuration and delegating to the availability-only application facade. The
+page renders aggregate, privacy-safe counts only, distinguishes absent or invalid configuration, authentication
+failure, transient provider failure, partial results, and success, and never renders provider URLs, tokens, external
+identities, item data, or raw errors. A failed refresh does not affect `/settings`, `/providers/status`,
+`/imports/netflix`, or `/synchronizations/jellyfin`, and a repeat submission is an explicit new snapshot rather than an
+automatic retry.
+
 The implemented server-rendered UI includes the shared application shell, home page, read-only provider status page,
-the Netflix Viewing Activity import page, and the Jellyfin library synchronization page. Provider configuration
-editing, recommendation results, and media-detail and personal-state screens remain future Web work.
+the Netflix Viewing Activity import page, the Jellyfin library synchronization page, and the regional
+streaming-availability refresh page. Provider configuration editing, recommendation results, and media-detail and
+personal-state screens remain future Web work.
 
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
 render ORM records and provider transport DTOs directly. API responses use a common JSON error envelope where an

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Availability refresh · Media Recommender{% endblock %}
+
+{% block errors %}
+{% if configuration.value == "absent" %}
+<p>TMDB is not configured. Set the required configuration before refreshing availability.</p>
+{% elif configuration.value == "invalid" %}
+<p>TMDB configuration is invalid. Review the configured values before refreshing availability.</p>
+{% endif %}
+{% if result and result.outcome.value == "rejected" %}
+<p>Request rejected. Submit the availability refresh form from this page.</p>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<h1>Availability refresh</h1>
+<p>
+  Refresh regional streaming availability for every shared-catalog movie and TV show in the configured default region.
+  Each title's complete regional snapshot is replaced only after the provider responds successfully.
+</p>
+<form method="post" action="{{ url_for('submit_availability_refresh') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit" {% if configuration.value != "configured" %}disabled{% endif %}>Refresh streaming availability</button>
+</form>
+{% if result %}
+<section aria-labelledby="availability-result">
+  <h2 id="availability-result">Refresh result</h2>
+  {% if result.outcome.value == "success" %}
+  <p>Availability refresh completed.</p>
+  {% elif result.outcome.value == "partial" %}
+  <p>Availability refresh completed with titles that were not refreshed.</p>
+  {% elif result.outcome.value == "authentication_failure" %}
+  <p>TMDB rejected the configured credentials. Check the TMDB configuration and credentials.</p>
+  {% elif result.outcome.value == "transient_failure" %}
+  <p>TMDB could not be reached. Try again later.</p>
+  {% elif result.outcome.value in ("failed", "unexpected_failure") %}
+  <p>Availability refresh could not be completed. Try again later.</p>
+  {% endif %}
+  {% if result.outcome.value in ("success", "partial", "authentication_failure", "transient_failure", "failed") %}
+  <dl>
+    <dt>Refreshed</dt>
+    <dd>{{ result.refreshed }}</dd>
+    <dt>Unresolved</dt>
+    <dd>{{ result.unresolved }}</dd>
+    <dt>Ambiguous</dt>
+    <dd>{{ result.ambiguous }}</dd>
+    <dt>Failed</dt>
+    <dd>{{ result.failed }}</dd>
+    {% if result.outcome.value in ("success", "partial") %}
+    <dt>Removed</dt>
+    <dd>{{ result.removed }}</dd>
+    {% endif %}
+  </dl>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

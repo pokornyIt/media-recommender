@@ -13,6 +13,8 @@ from media_recommender.config import Settings
 from media_recommender.web.errors import register_exception_handlers
 from media_recommender.web.middleware import RequestBodyLimitMiddleware
 from media_recommender.web.routes.api import router as api_router
+from media_recommender.web.routes.availability import register_availability_exception_handlers
+from media_recommender.web.routes.availability import router as availability_router
 from media_recommender.web.routes.imports import NETFLIX_IMPORT_PATH, register_import_exception_handlers
 from media_recommender.web.routes.imports import router as import_router
 from media_recommender.web.routes.jellyfin import register_jellyfin_exception_handlers
@@ -56,10 +58,12 @@ def create_app() -> FastAPI:
     app.include_router(page_router)
     app.include_router(import_router)
     app.include_router(jellyfin_router)
+    app.include_router(availability_router)
     app.state.templates = templates
     register_exception_handlers(app)
     register_media_exception_handlers(app)
     register_recommendation_exception_handlers(app)
     register_import_exception_handlers(app)
     register_jellyfin_exception_handlers(app)
+    register_availability_exception_handlers(app)
     return app
