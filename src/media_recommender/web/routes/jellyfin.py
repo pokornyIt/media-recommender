@@ -72,20 +72,6 @@ class JellyfinSyncView:
     removed: int = 0
 
 
-def get_jellyfin_sync_service(request: Request) -> Phase2Orchestrator:
-    """Return the Jellyfin synchronization facade configured by the composition root.
-
-    :param request: Incoming request carrying the current application instance.
-    :return: Phase 2 application facade.
-    :raises RuntimeError: If no Jellyfin synchronization service is configured.
-    """
-    try:
-        return cast("Phase2Orchestrator", request.app.state.jellyfin_sync_service)
-    except AttributeError as error:
-        msg = "Jellyfin synchronization service is not configured"
-        raise RuntimeError(msg) from error
-
-
 def get_jellyfin_configuration_state(
     statuses: Annotated[Sequence[ProviderStatus], Depends(get_provider_statuses)],
 ) -> JellyfinConfigurationState:
@@ -116,6 +102,30 @@ def jellyfin_configuration_state(statuses: Sequence[ProviderStatus]) -> Jellyfin
     return JellyfinConfigurationState.ABSENT
 
 
+def get_jellyfin_sync_service(
+    request: Request,
+    configuration: Annotated[JellyfinConfigurationState, Depends(get_jellyfin_configuration_state)],
+) -> Phase2Orchestrator | None:
+    """Return the Jellyfin synchronization facade only for a valid configuration.
+
+    Facade resolution is deliberately gated by the safe configuration state so
+    an absent or malformed Jellyfin configuration never requires an installed
+    service and cannot surface as a generic server error.
+
+    :param request: Incoming request carrying the current application instance.
+    :param configuration: Safe Jellyfin configuration state.
+    :return: Phase 2 application facade, or ``None`` when Jellyfin is not configured.
+    :raises RuntimeError: If Jellyfin is configured but no synchronization service is installed.
+    """
+    if configuration is not JellyfinConfigurationState.CONFIGURED:
+        return None
+    try:
+        return cast("Phase2Orchestrator", request.app.state.jellyfin_sync_service)
+    except AttributeError as error:
+        msg = "Jellyfin synchronization service is not configured"
+        raise RuntimeError(msg) from error
+
+
 @router.get(JELLYFIN_SYNC_PATH, response_class=HTMLResponse)
 async def jellyfin_sync_page(
     request: Request,
@@ -136,26 +146,38 @@ async def jellyfin_sync_page(
 async def submit_jellyfin_sync(
     request: Request,
     templates: Annotated[Jinja2Templates, Depends(get_templates)],
-    service: Annotated[Phase2Orchestrator, Depends(get_jellyfin_sync_service)],
-    configuration: Annotated[JellyfinConfigurationState, Depends(get_jellyfin_configuration_state)],
     _csrf: Annotated[None, Depends(require_csrf_token)],
+    service: Annotated[Phase2Orchestrator | None, Depends(get_jellyfin_sync_service)],
+    configuration: Annotated[JellyfinConfigurationState, Depends(get_jellyfin_configuration_state)],
 ) -> HTMLResponse:
     """Run exactly one Jellyfin-only synchronization and render aggregate results.
 
-    The CSRF/origin dependency is applied before configuration is re-validated.
-    Configuration is resolved only through the safe provider-status contract and
-    the route never reads secrets, persistence, or provider DTOs directly.
+    The CSRF/origin gate is declared first so it is enforced before the facade
+    is ever resolved, and facade resolution is gated by safe configuration.
+    Absent or invalid configuration therefore returns its distinct safe outcome
+    and an invalid token or origin receives the established rejection without
+    requiring an installed service. Configuration is resolved only through the
+    safe provider-status contract and the route never reads secrets,
+    persistence, or provider DTOs directly.
 
     :param request: Incoming browser request.
     :param templates: Shared Jinja2 template renderer.
-    :param service: Injected Jellyfin-only application facade.
-    :param configuration: Safe Jellyfin configuration state.
     :param _csrf: CSRF and origin validation dependency.
+    :param service: Injected Jellyfin-only application facade, or ``None`` when unconfigured.
+    :param configuration: Safe Jellyfin configuration state.
     :return: Shared-layout synchronization page with a privacy-safe result.
     """
     if configuration is not JellyfinConfigurationState.CONFIGURED:
         result = _configuration_view(configuration)
         return _render(templates, request, configuration, result, status_code=HTTPStatus.BAD_REQUEST)
+    if service is None:
+        return _render(
+            templates,
+            request,
+            configuration,
+            _unexpected_failure_view(),
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+        )
     try:
         report = await service.synchronize_jellyfin_library()
     except Exception:  # noqa: BLE001 - translate unexpected application failures into a sanitized result.

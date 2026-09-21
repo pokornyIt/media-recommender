@@ -121,6 +121,21 @@ def _client(
     return cast("Client", TestClient(app))
 
 
+def _client_without_service(
+    *,
+    configuration: JellyfinConfigurationState | None = None,
+) -> Client:
+    """Build a test client without an installed Jellyfin synchronization service.
+
+    :param configuration: Optional synthetic Jellyfin configuration state.
+    :return: Offline HTTPX-compatible test client with no facade installed.
+    """
+    app = create_app()
+    if configuration is not None:
+        app.dependency_overrides[get_jellyfin_configuration_state] = lambda: configuration
+    return cast("Client", TestClient(app))
+
+
 def _csrf_token(client: Client) -> str:
     """Return the CSRF token rendered by the synchronization page.
 
@@ -402,3 +417,42 @@ def test_configuration_state_mapping_uses_safe_provider_status(
 ) -> None:
     """Map safe provider status snapshots to the synchronization configuration state."""
     assert jellyfin_configuration_state(statuses) is expected
+
+
+@pytest.mark.parametrize(
+    ("configuration", "message"),
+    [
+        (JellyfinConfigurationState.ABSENT, "not configured"),
+        (JellyfinConfigurationState.INVALID, "configuration is invalid"),
+    ],
+)
+def test_configuration_gate_without_service_returns_safe_outcome(
+    configuration: JellyfinConfigurationState,
+    message: str,
+) -> None:
+    """Return the distinct configuration outcome when no synchronization service is installed."""
+    client = _client_without_service(configuration=configuration)
+    token = _csrf_token(client)
+
+    response = _post(client, token=token)
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert message in response.text.lower()
+
+
+@pytest.mark.parametrize("configuration", [None, JellyfinConfigurationState.CONFIGURED])
+def test_csrf_rejection_without_service_is_enforced(
+    configuration: JellyfinConfigurationState | None,
+) -> None:
+    """Enforce the established CSRF/origin rejection when no synchronization service is installed."""
+    client = _client_without_service(configuration=configuration)
+    token = _csrf_token(client)
+
+    missing = _post(client)
+    incorrect = _post(client, token="synthetic-incorrect-token")  # noqa: S106 - synthetic test value, not a secret.
+    cross_origin = _post(client, token=token, origin="https://synthetic-evil.invalid")
+
+    assert missing.status_code == HTTPStatus.FORBIDDEN
+    assert incorrect.status_code == HTTPStatus.FORBIDDEN
+    assert cross_origin.status_code == HTTPStatus.FORBIDDEN
+    assert "Request rejected" in missing.text
