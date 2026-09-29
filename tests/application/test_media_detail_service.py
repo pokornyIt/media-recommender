@@ -37,6 +37,8 @@ from media_recommender.persistence import (
 )
 
 SYNTHETIC_NOW = datetime(2026, 9, 20, 12, tzinfo=UTC)
+INITIAL_RATING = 7.5
+UPDATED_RATING = 9.0
 
 
 def _alembic_config(database_path: Path) -> Config:
@@ -117,16 +119,16 @@ async def _exercise_media_detail_service(database_path: Path) -> None:
     assert len(detail.streaming_availability) == 1
     assert detail.streaming_availability[0].service.name == "Netflix"
 
-    first = await service.set_rating(movie.id, value=7.5, like_state=LikeState.LIKED)
-    second = await service.set_rating(movie.id, value=9.0, like_state=None)
+    first = await service.set_rating(movie.id, value=INITIAL_RATING, like_state=LikeState.LIKED)
+    second = await service.set_rating(movie.id, value=UPDATED_RATING, like_state=None)
 
     assert first.id == second.id
-    assert second.value == 9.0
+    assert second.value == UPDATED_RATING
     assert second.like_state is None
     assert second.provenance.provider == "web"
     stored = await personal.list_ratings(profile.id, movie.id)
     assert len(stored) == 1
-    assert stored[0].value == 9.0
+    assert stored[0].value == UPDATED_RATING
 
     with pytest.raises(ValueError, match="numeric value or explicit like state"):
         await service.set_rating(movie.id, value=None, like_state=None)

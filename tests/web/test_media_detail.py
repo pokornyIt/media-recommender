@@ -47,7 +47,7 @@ SERIES_ID = UUID("22222222-2222-2222-2222-222222222222")
 MISSING_ID = UUID("33333333-3333-3333-3333-333333333333")
 
 _ARTWORK_URL = "https://artwork.synthetic.invalid/poster.jpg"
-_SYNTHETIC_SYNC_SECRET = "synthetic-sync-secret"
+_SYNTHETIC_SYNC_SECRET = "synthetic-sync-secret"  # noqa: S105 - synthetic test value.
 _SYNTHETIC_NOW = datetime(2026, 9, 20, 12, tzinfo=UTC)
 
 

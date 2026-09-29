@@ -19,7 +19,9 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates  # noqa: TC002 - FastAPI resolves this dependency annotation at runtime.
 
-from media_recommender.application import MediaDetail, MediaDetailService
+from media_recommender.application import (
+    MediaDetailService,  # noqa: TC001 - FastAPI resolves this dependency annotation at runtime.
+)
 from media_recommender.domain import ArtworkType, LikeState, MediaId, Movie, WatchStatus
 from media_recommender.web.csrf import CsrfValidationError, get_csrf_token, require_csrf_token
 from media_recommender.web.errors import register_exception_handlers
@@ -32,6 +34,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
     from starlette.types import ExceptionHandler
 
+    from media_recommender.application import MediaDetail
     from media_recommender.domain import LibraryPresence, Media, StreamingAvailability
 
 router = APIRouter()
@@ -40,6 +43,7 @@ MEDIA_DETAIL_PATH = "/media/{media_id}"
 
 _MAXIMUM_CONTEXT_ITEMS = 20
 _MAXIMUM_CONTEXT_LENGTH = 200
+_MAXIMUM_RATING = 10
 
 _INVALID_RATING_MESSAGE = "Enter a rating between 0 and 10 or select a reaction."
 _EMPTY_RATING_MESSAGE = "Provide a numeric rating or select a reaction before saving."
@@ -143,7 +147,7 @@ async def media_detail_page(
 
 
 @router.post(MEDIA_DETAIL_PATH, response_class=HTMLResponse)
-async def submit_media_rating(
+async def submit_media_rating(  # noqa: PLR0913, PLR0917 - FastAPI dependency and form parameters.
     request: Request,
     media_id: UUID,
     templates: Annotated[Jinja2Templates, Depends(get_templates)],
@@ -167,54 +171,39 @@ async def submit_media_rating(
     :param like_state: Optional submitted explicit reaction.
     :return: Shared-layout detail page with a safe result message.
     """
+    error: str | None = None
+    success: str | None = None
+    status_code = HTTPStatus.OK
     try:
         value = _parse_rating_value(rating_value)
         reaction = _parse_like_state(like_state)
     except ValueError:
-        detail = await service.get_detail(MediaId(media_id))
-        if detail is None:
-            return _render_not_found(templates, request)
-        return _render(
-            templates,
-            request,
-            detail,
-            _recommendation_context(request),
-            _INVALID_RATING_MESSAGE,
-            None,
-            status_code=HTTPStatus.BAD_REQUEST,
-        )
-    if value is None and reaction is None:
-        detail = await service.get_detail(MediaId(media_id))
-        if detail is None:
-            return _render_not_found(templates, request)
-        return _render(
-            templates,
-            request,
-            detail,
-            _recommendation_context(request),
-            _EMPTY_RATING_MESSAGE,
-            None,
-            status_code=HTTPStatus.BAD_REQUEST,
-        )
-    try:
-        await service.set_rating(MediaId(media_id), value=value, like_state=reaction)
-    except Exception:  # noqa: BLE001 - translate unexpected application failures into a sanitized result.
-        detail = await service.get_detail(MediaId(media_id))
-        if detail is None:
-            return _render_not_found(templates, request)
-        return _render(
-            templates,
-            request,
-            detail,
-            _recommendation_context(request),
-            _FAILURE_MESSAGE,
-            None,
-            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-        )
+        error = _INVALID_RATING_MESSAGE
+        status_code = HTTPStatus.BAD_REQUEST
+    else:
+        if value is None and reaction is None:
+            error = _EMPTY_RATING_MESSAGE
+            status_code = HTTPStatus.BAD_REQUEST
+        else:
+            try:
+                await service.set_rating(MediaId(media_id), value=value, like_state=reaction)
+            except Exception:  # noqa: BLE001 - translate unexpected application failures into a sanitized result.
+                error = _FAILURE_MESSAGE
+                status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+            else:
+                success = "Personal state saved."
     detail = await service.get_detail(MediaId(media_id))
     if detail is None:
         return _render_not_found(templates, request)
-    return _render(templates, request, detail, _recommendation_context(request), None, "Personal state saved.")
+    return _render(
+        templates,
+        request,
+        detail,
+        _recommendation_context(request),
+        error,
+        success,
+        status_code=status_code,
+    )
 
 
 async def csrf_rejection_handler(request: Request, error: Exception) -> HTMLResponse:
@@ -264,8 +253,8 @@ def _parse_rating_value(value: str) -> float | None:
     if not text:
         return None
     rating = float(text)
-    if not 0 <= rating <= 10:
-        msg = "Rating must be between 0 and 10"
+    if not 0 <= rating <= _MAXIMUM_RATING:
+        msg = f"Rating must be between 0 and {_MAXIMUM_RATING}"
         raise ValueError(msg)
     return rating
 
@@ -471,7 +460,7 @@ def _render_not_found(templates: Jinja2Templates, request: Request) -> HTMLRespo
     )
 
 
-def _render(
+def _render(  # noqa: PLR0913, PLR0917 - explicit render context parameters.
     templates: Jinja2Templates,
     request: Request,
     detail: MediaDetail,
