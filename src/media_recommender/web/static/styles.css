@@ -28,9 +28,49 @@ main {
   display: none;
 }
 
+.recommendation-form fieldset {
+  border: 1px solid currentColor;
+  margin-block-end: 1rem;
+  padding: 0.75rem;
+}
+
+.recommendation-form label {
+  display: block;
+  margin-block: 0.25rem;
+}
+
+.recommendation-form input[type="text"],
+.recommendation-form input[type="number"],
+.recommendation-form select {
+  max-width: 100%;
+}
+
+.recommendation-results {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  list-style: none;
+  padding: 0;
+}
+
+.recommendation-card {
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.recommendation-card img {
+  height: auto;
+  max-width: 100%;
+}
+
 @media (max-width: 40rem) {
   .site-header,
   main {
     padding: 0.75rem;
+  }
+
+  .recommendation-results {
+    grid-template-columns: 1fr;
   }
 }

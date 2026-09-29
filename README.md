@@ -189,8 +189,12 @@ failed refresh does not affect `/settings`, `/providers/status`, `/imports/netfl
 and a repeat submission is an explicit new snapshot rather than an automatic retry.
 
 The implemented server-rendered UI includes the shared application shell, home page, read-only provider status page,
-the Netflix Viewing Activity import page, the Jellyfin library synchronization page, and the regional
-streaming-availability refresh page. Provider configuration editing, recommendation results, and media-detail and
+the Netflix Viewing Activity import page, the Jellyfin library synchronization page, the regional
+streaming-availability refresh page, and the structured recommendation workflow. `GET /recommendations` renders the
+criteria form and `POST /recommendations` applies the same session-bound CSRF and exact-origin check before delegating
+to the existing deterministic application facade. Result cards preserve the service ordering and expose known
+availability, watched/rated state, and structured recommendation reasons; the submitted criteria remain visible after
+submission, and an empty result is explained as a no-match state. Provider configuration editing and media-detail and
 personal-state screens remain future Web work.
 
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
@@ -287,9 +291,10 @@ automated tests use synthetic data, temporary databases, and mock transports, so
 
 The repository provides a FastAPI application factory, a production ASGI entry point with a startup lifecycle, a
 server-rendered application shell, documented liveness, readiness, provider-health, media-read, and deterministic
-recommendation HTTP endpoints, and a production Docker image with a reference Docker Compose deployment. There is no
-complete end-user workflow UI, AI behavior, or MCP interface yet. Phase 2 recommendation and synchronization
-capabilities are exposed as in-process application services for future interfaces.
+recommendation HTTP endpoints, a structured recommendation workflow, and a production Docker image with a reference
+Docker Compose deployment. There is no AI behavior or MCP interface yet, and media-detail and personal-state screens
+remain future Web work. Phase 2 recommendation and synchronization capabilities are exposed as in-process application
+services reused by the Web interface.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part

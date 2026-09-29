@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}Recommendations · Media Recommender{% endblock %}
+
+{% block errors %}
+{% if error %}
+<p>{{ error }}</p>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<h1>Recommendations</h1>
+<p>
+  Build structured criteria for deterministic recommendations. Hard filters decide which titles are eligible;
+  ranking preferences only order the eligible titles. No AI provider is required.
+</p>
+<form class="recommendation-form" method="post" action="{{ url_for('submit_recommendations') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <fieldset>
+    <legend>Hard filters</legend>
+    <fieldset>
+      <legend>Media type</legend>
+      {% for media_type in media_types %}
+      <label>
+        <input type="checkbox" name="media_types" value="{{ media_type.value }}"
+               {% if media_type.value in form.media_types %}checked{% endif %}>
+        {{ media_type.value }}
+      </label>
+      {% endfor %}
+    </fieldset>
+    <p>
+      <label for="include-genres">Included genres (comma-separated)</label>
+      <input id="include-genres" name="include_genres" type="text" value="{{ form.include_genres }}" autocomplete="off">
+    </p>
+    <p>
+      <label for="genre-match">Included-genre matching</label>
+      <select id="genre-match" name="genre_match">
+        {% for match in genre_matches %}
+        <option value="{{ match.value }}" {% if match.value == form.genre_match %}selected{% endif %}>{{ match.value }}</option>
+        {% endfor %}
+      </select>
+    </p>
+    <p>
+      <label for="exclude-genres">Excluded genres (comma-separated)</label>
+      <input id="exclude-genres" name="exclude_genres" type="text" value="{{ form.exclude_genres }}" autocomplete="off">
+    </p>
+    <p>
+      <label for="include-countries">Included production countries (comma-separated ISO codes)</label>
+      <input id="include-countries" name="include_countries" type="text" value="{{ form.include_countries }}" autocomplete="off">
+    </p>
+    <p>
+      <label for="exclude-countries">Excluded production countries (comma-separated ISO codes)</label>
+      <input id="exclude-countries" name="exclude_countries" type="text" value="{{ form.exclude_countries }}" autocomplete="off">
+    </p>
+    <p>
+      <label for="include-regions">Included production regions</label>
+      <select id="include-regions" name="include_regions" multiple size="6">
+        {% for region in regions %}
+        <option value="{{ region.value }}" {% if region.value in form.include_regions %}selected{% endif %}>{{ region.value }}</option>
+        {% endfor %}
+      </select>
+    </p>
+    <p>
+      <label for="exclude-regions">Excluded production regions</label>
+      <select id="exclude-regions" name="exclude_regions" multiple size="6">
+        {% for region in regions %}
+        <option value="{{ region.value }}" {% if region.value in form.exclude_regions %}selected{% endif %}>{{ region.value }}</option>
+        {% endfor %}
+      </select>
+    </p>
+    <p>
+      <label for="minimum-runtime">Minimum runtime (minutes)</label>
+      <input id="minimum-runtime" name="minimum_runtime_minutes" type="number" min="1" value="{{ form.minimum_runtime_minutes }}">
+    </p>
+    <p>
+      <label for="maximum-runtime">Maximum runtime (minutes)</label>
+      <input id="maximum-runtime" name="maximum_runtime_minutes" type="number" min="1" value="{{ form.maximum_runtime_minutes }}">
+    </p>
+    <p>
+      <label for="minimum-release-year">Minimum release year</label>
+      <input id="minimum-release-year" name="minimum_release_year" type="number" min="1870" value="{{ form.minimum_release_year }}">
+    </p>
+    <p>
+      <label for="maximum-release-year">Maximum release year</label>
+      <input id="maximum-release-year" name="maximum_release_year" type="number" min="1870" value="{{ form.maximum_release_year }}">
+    </p>
+    <p>
+      <label for="watch">Watch state</label>
+      <select id="watch" name="watch">
+        {% for requirement in watch_requirements %}
+        <option value="{{ requirement.value }}" {% if requirement.value == form.watch %}selected{% endif %}>{{ requirement.value }}</option>
+        {% endfor %}
+      </select>
+    </p>
+    <p>
+      <label for="minimum-personal-rating">Minimum personal rating (0-10)</label>
+      <input id="minimum-personal-rating" name="minimum_personal_rating" type="number" min="0" max="10" step="0.1" value="{{ form.minimum_personal_rating }}">
+    </p>
+    <fieldset>
+      <legend>Excluded reactions</legend>
+      {% for state in like_states %}
+      <label>
+        <input type="checkbox" name="excluded_like_states" value="{{ state.value }}"
+               {% if state.value in form.excluded_like_states %}checked{% endif %}>
+        {{ state.value }}
+      </label>
+      {% endfor %}
+    </fieldset>
+    <p>
+      <label>
+        <input type="checkbox" name="apply_profile_exclusions" value="true"
+               {% if form.apply_profile_exclusions %}checked{% endif %}>
+        Apply saved profile exclusions
+      </label>
+    </p>
+  </fieldset>
+  <fieldset>
+    <legend>Availability (any selected source)</legend>
+    <p>
+      <label for="availability-local-provider">Local library provider</label>
+      <input id="availability-local-provider" name="availability_local_provider" type="text"
+             value="{{ form.availability_local_provider }}" autocomplete="off" placeholder="jellyfin">
+    </p>
+    <p>
+      <label for="availability-streaming-provider">Streaming provider</label>
+      <input id="availability-streaming-provider" name="availability_streaming_provider" type="text"
+             value="{{ form.availability_streaming_provider }}" autocomplete="off" placeholder="Netflix">
+    </p>
+    <p>
+      <label for="availability-streaming-region">Streaming region (ISO code)</label>
+      <input id="availability-streaming-region" name="availability_streaming_region" type="text"
+             value="{{ form.availability_streaming_region }}" autocomplete="off" placeholder="CZ">
+    </p>
+  </fieldset>
+  <fieldset>
+    <legend>Result limit</legend>
+    <p>
+      <label for="limit">Maximum results shown (1-100)</label>
+      <input id="limit" name="limit" type="number" min="1" max="100" value="{{ form.limit }}">
+    </p>
+  </fieldset>
+  <button type="submit">Get recommendations</button>
+</form>
+
+{% if result %}
+<section aria-labelledby="recommendation-results">
+  <h2 id="recommendation-results">Results</h2>
+  {% if summary %}
+  <section aria-labelledby="active-criteria">
+    <h3 id="active-criteria">Active criteria</h3>
+    <ul>
+      {% for item in summary %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  {% if result.cards %}
+  <p>{{ result.cards | length }} of {{ result.total }} eligible titles shown.</p>
+  {% if result.truncated %}
+  <p>Additional eligible titles were not shown because of the result limit.</p>
+  {% endif %}
+  <ol class="recommendation-results">
+    {% for card in result.cards %}
+    <li>
+      <article class="recommendation-card" aria-labelledby="recommendation-title-{{ card.rank }}">
+        <h3 id="recommendation-title-{{ card.rank }}">
+          {{ card.title }}{% if card.release_year %} ({{ card.release_year }}){% endif %}
+        </h3>
+        {% if card.artwork_url %}
+        <img src="{{ card.artwork_url }}" alt="{{ card.artwork_alt }}" width="120">
+        {% endif %}
+        <p>Rank {{ card.rank }} · Score {{ card.score }} · {{ card.media_type }}</p>
+        {% if card.runtime_minutes %}
+        <p>Runtime: {{ card.runtime_minutes }} minutes</p>
+        {% endif %}
+        {% if card.genres %}
+        <p>Genres: {{ card.genres | join(", ") }}</p>
+        {% endif %}
+        <p>Watch state: {{ card.watch_status }}</p>
+        {% if card.personal_rating is not none %}
+        <p>Personal rating: {{ card.personal_rating }}</p>
+        {% endif %}
+        {% if card.like_states %}
+        <p>Reactions: {{ card.like_states | join(", ") }}</p>
+        {% endif %}
+        {% if card.availability %}
+        <p>Availability: {{ card.availability | join("; ") }}</p>
+        {% endif %}
+        {% if card.matched_constraints %}
+        <p>Matched criteria: {{ card.matched_constraints | join("; ") }}</p>
+        {% endif %}
+        {% if card.ranking_reasons %}
+        <p>Ranking reasons: {{ card.ranking_reasons | join("; ") }}</p>
+        {% endif %}
+        {% if card.warnings %}
+        <p>Warnings: {{ card.warnings | join("; ") }}</p>
+        {% endif %}
+      </article>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p>No candidates satisfied the selected criteria. Adjust the hard filters and try again.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

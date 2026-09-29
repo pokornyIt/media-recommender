@@ -90,6 +90,20 @@ integer weights and stable tie-breaking. The result includes factual constraint 
 known availability, profile watch/rating state, and typed missing-data warnings. No AI provider is required. Detailed
 filtering and ranking semantics are documented in [Deterministic recommendation filtering](recommendation-filtering.md).
 
+`GET /recommendations` renders the structured recommendation form and `POST /recommendations` applies the same
+session-bound CSRF and exact-origin check before delegating to `Phase2Orchestrator.recommend()`. The form builds the
+existing `RecommendationCriteria` contract from explicit controls for media type, genre inclusion/exclusion, production
+country and region inclusion/exclusion, runtime and release-year bounds, watch state, personal rating, excluded
+reactions, saved profile exclusions, local-library and regional streaming availability, and a presentation-only result
+limit. The route maps validated application results into presentation facts; it does not reimplement filtering, ranking,
+or explanation logic, and it never renders rejected candidates or internal filter decisions.
+
+Result cards preserve the deterministic service ordering and expose title, year, media type, artwork, runtime, genres,
+known availability, watch/rated state, score and rank, structured matched criteria, signed ranking reasons, and typed
+unknown-data warnings. The submitted criteria remain visible in the re-rendered form and in an active-criteria summary,
+and an empty result is explained as no candidates satisfying the criteria rather than as an application error. The
+result limit only truncates the rendered slice; it never reorders or re-scores recommendations.
+
 ## Migrations and validation
 
 Alembic upgrades an existing Phase 1 revision through the personal data, rating timestamp, Jellyfin presence, and
