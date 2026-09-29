@@ -16,7 +16,6 @@ from media_recommender.application.provider_status import (
     ProviderStatusReader,
 )
 from media_recommender.config import JellyfinSettings, Settings, TmdbSettings
-from media_recommender.web.schemas.health import LivenessResponse
 
 router = APIRouter()
 
@@ -132,12 +131,3 @@ async def provider_status(
     :return: Shared-layout provider status page.
     """
     return templates.TemplateResponse(request, "provider_status.html", {"statuses": statuses})
-
-
-@router.get("/health/live", response_model=LivenessResponse)
-async def liveness() -> LivenessResponse:
-    """Report that the HTTP process is able to serve requests.
-
-    :return: Liveness status without database or provider access.
-    """
-    return LivenessResponse(status="ok")
