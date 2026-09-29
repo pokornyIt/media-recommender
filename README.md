@@ -87,7 +87,7 @@ later supported imports repeatable without treating a provider identity as the a
 
 The FastAPI HTTP boundary and server-rendered Web shell are implemented; provider settings and configuration UI,
 import and synchronization UI or controls, complete recommendation and media-detail screens, MCP, and deployment
-remain planned. Local Netflix Viewing Activity
+hardening remain planned. Local Netflix Viewing Activity
 and supported ratings CSV imports now flow through the shared identity resolver into
 profile-owned personal state. Jellyfin movie and series libraries can be synchronized through its supported API,
 including distinct library presence and per-user watched state. Regional streaming availability can be refreshed from
@@ -208,17 +208,52 @@ MCP is an interface to the application rather than the application core itself.
 
 ### Deployment and Operations
 
-Planned; not implemented yet. Docker images, Docker Compose, health checks, and release packaging are not
-implemented yet.
-The intended deployment scope includes:
+The supported baseline deployment is a single production Docker image plus a reference Docker Compose file. It requires
+only Docker/Compose and configured external providers; it does not require Kubernetes, Redis, PostgreSQL, a reverse
+proxy, or an external job queue.
 
-* Docker images;
-* Docker Compose;
-* persistent storage;
-* configuration and secrets;
-* health checks;
-* database migrations;
-* upgrade documentation.
+Build the image from a clean checkout:
+
+```bash
+docker build -t media-recommender:local .
+```
+
+Run it with a persistent data volume and runtime configuration:
+
+```bash
+docker run --rm \
+  -p 8000:8000 \
+  -v media-recommender-data:/data \
+  -e MEDIA_RECOMMENDER_WEB_SESSION_SECRET="replace-with-a-long-random-session-secret" \
+  media-recommender:local
+```
+
+The reference [`compose.yaml`](compose.yaml) provides the same deployment with a named volume:
+
+```bash
+cp .env.example .env
+# Edit .env and replace the placeholder session secret and optional provider values.
+docker compose up --build
+```
+
+The application listens on port `8000` and exposes `GET /health/live`, which the image healthcheck uses. The image runs
+as a non-root user, contains no development dependencies, tests, documentation, local databases, or credentials, and
+stores all mutable state under `/data` (`MEDIA_RECOMMENDER_DATABASE_PATH=/data/media-recommender.db`). Because `/data`
+is a mounted volume, SQLite data survives container recreation and upgrades.
+
+Runtime configuration and secrets are supplied through environment variables or a Compose `.env` file and are never
+baked into the image. `MEDIA_RECOMMENDER_WEB_SESSION_SECRET` must be set so signed sessions survive restarts; provider
+credentials are optional and documented in [Provider integration conventions](docs/provider-integrations.md).
+
+The container stops gracefully on `SIGTERM`, and `docker compose stop` waits for the configured grace period before
+terminating the process. Schema upgrades remain explicit: apply migrations against the mounted database before starting
+a new image version.
+
+```bash
+docker compose run --rm media-recommender alembic upgrade head
+```
+
+Startup ordering, readiness, migration automation, and backup/restore hardening are tracked separately.
 
 ## Non-goals
 
@@ -243,10 +278,11 @@ The application can represent movies and TV shows, normalize TMDB metadata, pers
 personal media state in SQLite, and expose those workflows through provider-independent application contracts. The
 automated tests use synthetic data, temporary databases, and mock transports, so normal validation is fully offline.
 
-The repository provides a FastAPI application factory, a server-rendered application shell, and documented liveness,
-media-read, and deterministic recommendation HTTP endpoints. There is no production ASGI entry point, complete
-end-user workflow UI, AI behavior, MCP interface, or production deployment yet. Phase 2 recommendation and
-synchronization capabilities are exposed as in-process application services for future interfaces.
+The repository provides a FastAPI application factory, a production ASGI entry point, a server-rendered application
+shell, documented liveness, media-read, and deterministic recommendation HTTP endpoints, and a production Docker image
+with a reference Docker Compose deployment. There is no complete end-user workflow UI, AI behavior, or MCP interface
+yet. Phase 2 recommendation and synchronization capabilities are exposed as in-process application services for future
+interfaces.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part

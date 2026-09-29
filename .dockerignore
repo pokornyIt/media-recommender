@@ -1,0 +1,39 @@
+# Version control and editor metadata
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Local environments, caches, and build artifacts
+.venv
+.uv-cache
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.pyright
+.coverage
+.coverage.*
+coverage.xml
+htmlcov
+build
+dist
+*.egg-info
+__pycache__
+*.py[cod]
+
+# Private runtime data and secrets
+data
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+.env
+.env.*
+*.log
+
+# Repository-only artifacts not needed at runtime
+tests
+docs

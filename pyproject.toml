@@ -18,6 +18,7 @@ dependencies = [
     "pydantic-settings>=2.13,<3",
     "python-multipart>=0.0.20,<0.1",
     "sqlalchemy>=2.0.48,<3",
+    "uvicorn>=0.54,<0.55",
 ]
 
 [dependency-groups]

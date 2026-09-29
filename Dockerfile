@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1
+
+# Build stage: resolve the locked runtime environment and install the application.
+FROM python:3.14-slim AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
+
+WORKDIR /app
+
+# Install runtime dependencies first so application changes reuse the cached layer.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# Install the application package itself without development dependencies.
+COPY src ./src
+COPY README.md LICENSE ./
+RUN uv sync --frozen --no-dev --no-editable
+
+# Runtime stage: minimal image with the installed environment and no build tooling.
+FROM python:3.14-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH" \
+    MEDIA_RECOMMENDER_DATABASE_PATH=/data/media-recommender.db
+
+WORKDIR /app
+
+# Run as an unprivileged user and keep mutable state in a dedicated data directory.
+RUN groupadd --system --gid 10001 app \
+    && useradd --uid 10001 --gid app --home-dir /app --no-create-home --shell /usr/sbin/nologin app \
+    && mkdir -p /data \
+    && chown app:app /data
+
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --chown=app:app alembic.ini ./
+COPY --chown=app:app migrations ./migrations
+
+USER app
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=3).read()"]
+
+STOPSIGNAL SIGTERM
+
+CMD ["uvicorn", "media_recommender.asgi:app", "--host", "0.0.0.0", "--port", "8000"]
