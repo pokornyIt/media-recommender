@@ -74,6 +74,11 @@ Never use the `gh` command; it is not installed.
 
 Before every commit and push, including review fixes:
 
+* Before validation, stage all intended changes, including new files, using explicit paths. Inspect `git status --short`
+  and `git diff --cached --stat` to confirm the complete change is included.
+* `pre-commit run --all-files` checks Git-tracked files; it does not validate new untracked files.
+  Never treat its success before staging new files as validation of the complete change.
+* If hooks modify files, stage the corrected files and rerun validation.
 * Run `uv run --frozen pre-commit run --all-files --show-diff-on-failure` after the final edits and wait for completion.
 * If any hook fails or modifies files, resolve the failure and rerun the complete command until it exits with code 0.
 * Any subsequent file change invalidates the previous validation result.
