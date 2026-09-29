@@ -69,6 +69,7 @@ class WorkflowFailureReason(StrEnum):
     AUTHENTICATION_FAILURE = "authentication_failure"
     TRANSIENT_FAILURE = "transient_failure"
     LOCAL_SOURCE_FAILURE = "local_source_failure"
+    NOT_CONFIGURED = "not_configured"
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,18 +242,23 @@ class Phase2Orchestrator:
         self,
         profiles: ProfileRepository,
         netflix: NetflixImportWorkflow,
-        library: LibrarySynchronizationWorkflow,
-        availability: AvailabilityRefreshWorkflow,
+        library: LibrarySynchronizationWorkflow | None,
+        availability: AvailabilityRefreshWorkflow | None,
         recommendations: RecommendationWorkflow,
         *,
         catalog: MediaCatalogReader | None = None,
     ) -> None:
         """Initialize all completed Phase 2 workflow boundaries.
 
+        A provider-backed workflow is ``None`` when its provider is not
+        configured. The corresponding narrow entry point then returns a safe
+        ``not_configured`` failure report instead of raising, so an unconfigured
+        provider can never surface as an unexpected server error.
+
         :param profiles: Internal profile persistence boundary.
         :param netflix: Supported local Netflix import integration.
-        :param library: Configured local-library synchronization integration.
-        :param availability: Regional streaming refresh application service.
+        :param library: Configured local-library synchronization integration, or ``None`` when unconfigured.
+        :param availability: Regional streaming refresh application service, or ``None`` when unconfigured.
         :param recommendations: Deterministic recommendation application service.
         :param catalog: Optional shared catalog reader used to enumerate availability targets.
         """
@@ -317,11 +323,14 @@ class Phase2Orchestrator:
         for each movie and TV show, and refreshes the complete regional snapshot
         for the supplied region. It never triggers Netflix imports, Jellyfin
         synchronization, or recommendations, and it returns only a normalized
-        aggregate report without item data.
+        aggregate report without item data. When no availability provider is
+        configured it returns a safe ``not_configured`` failure report.
 
         :param region: Configured ISO 3166-1 alpha-2 availability region.
         :return: Normalized streaming-availability report.
         """
+        if self._availability is None:
+            return _failed_report(WorkflowKind.STREAMING_AVAILABILITY, WorkflowFailureReason.NOT_CONFIGURED)
         targets = await self._availability_targets(region)
         return await self._refresh_availability(targets)
 
@@ -377,10 +386,13 @@ class Phase2Orchestrator:
 
         Typed authentication and transient markers are mapped to distinct safe
         reasons before the generic source failure, and no failure text or
-        provider value is placed in the report.
+        provider value is placed in the report. An unconfigured library provider
+        yields a safe ``not_configured`` failure report.
 
         :return: Normalized operation report.
         """
+        if self._library is None:
+            return _failed_report(WorkflowKind.JELLYFIN_LIBRARY, WorkflowFailureReason.NOT_CONFIGURED)
         try:
             result = await self._library.synchronize()
         except SourceAuthenticationError:
@@ -426,11 +438,15 @@ class Phase2Orchestrator:
         reasons before the generic source failure, and no failure text or
         provider value is placed in the report. A target without valid identity
         evidence is reported as unresolved, and a failed item never contributes
-        removed facts, so a failed refresh cannot claim a completed snapshot.
+        removed facts, so a failed refresh cannot claim a completed snapshot. An
+        unconfigured availability provider yields a safe ``not_configured``
+        failure report.
 
         :param targets: Ordered availability refresh targets.
         :return: Combined normalized availability report.
         """
+        if self._availability is None:
+            return _failed_report(WorkflowKind.STREAMING_AVAILABILITY, WorkflowFailureReason.NOT_CONFIGURED)
         items: list[WorkflowItem] = []
         removed = 0
         for target in sorted(targets, key=lambda item: item.position):

@@ -63,6 +63,7 @@ from media_recommender.application.orchestration import (
     WorkflowStatus,
 )
 from media_recommender.application.personal import PersonalMediaRepository, ProfileRepository
+from media_recommender.application.provider_health import ProviderOperationOutcome, ProviderOperationRecorder
 from media_recommender.application.provider_status import (
     ConfigurationState,
     DefaultProviderStatusReader,
@@ -165,6 +166,8 @@ __all__ = [
     "ProductionRegion",
     "ProfileRepository",
     "ProviderKind",
+    "ProviderOperationOutcome",
+    "ProviderOperationRecorder",
     "ProviderStatus",
     "ProviderStatusReader",
     "RankedRecommendation",

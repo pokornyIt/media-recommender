@@ -12,7 +12,15 @@ from media_recommender.application import (
     DefaultProviderStatusReader,
     OperationalState,
     ProviderKind,
+    ProviderOperationRecorder,
     ProviderStatus,
+    WorkflowCounts,
+    WorkflowFailureReason,
+    WorkflowItem,
+    WorkflowItemStatus,
+    WorkflowKind,
+    WorkflowReport,
+    WorkflowStatus,
 )
 
 _TMDB_TOKEN_ENV = "MEDIA_RECOMMENDER_TMDB_API_TOKEN"  # noqa: S105 - environment variable name, not a secret.
@@ -221,3 +229,26 @@ def test_default_reader_result_is_immutable_snapshots(monkeypatch: pytest.Monkey
     for status in statuses:
         with pytest.raises(PydanticValidationError):
             status.provider = ProviderKind.JELLYFIN  # type: ignore[misc]
+
+
+def test_default_reader_merges_recorded_provider_operation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Merge a recorded provider operation outcome into a configured status."""
+    _clear_provider_environment(monkeypatch)
+    monkeypatch.setenv(_TMDB_TOKEN_ENV, "synthetic-tmdb-value")
+    observed_at = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
+    recorder = ProviderOperationRecorder(clock=lambda: observed_at)
+    recorder.record(
+        WorkflowReport(
+            kind=WorkflowKind.STREAMING_AVAILABILITY,
+            status=WorkflowStatus.FAILED,
+            counts=WorkflowCounts(failed=1),
+            items=(WorkflowItem(1, WorkflowItemStatus.FAILED, WorkflowFailureReason.TRANSIENT_FAILURE.value),),
+        )
+    )
+
+    statuses = {status.provider: status for status in DefaultProviderStatusReader(recorder).read_provider_statuses()}
+
+    assert statuses[ProviderKind.TMDB].configuration is ConfigurationState.CONFIGURED
+    assert statuses[ProviderKind.TMDB].operational is OperationalState.TRANSIENT_FAILURE
+    assert statuses[ProviderKind.TMDB].observed_at == observed_at
+    assert statuses[ProviderKind.JELLYFIN].operational is OperationalState.NO_RECORDED_OPERATION

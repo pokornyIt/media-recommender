@@ -1,5 +1,6 @@
 """Validated application configuration."""
 
+import logging
 import secrets
 from pathlib import Path
 from typing import Self
@@ -9,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
 DEFAULT_NETFLIX_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+_LOG_LEVELS = frozenset(logging.getLevelNamesMapping())
 
 
 class Settings(BaseSettings):
@@ -18,6 +20,7 @@ class Settings(BaseSettings):
 
     database_path: Path = Path("data/media-recommender.db")
     default_region: str = Field(default="CZ", pattern=r"^[A-Z]{2}$")
+    log_level: str = "INFO"
     netflix_upload_max_bytes: int = Field(default=DEFAULT_NETFLIX_UPLOAD_MAX_BYTES, gt=0)
     web_session_secret: SecretStr = Field(default_factory=lambda: SecretStr(secrets.token_urlsafe(32)))
 
@@ -33,6 +36,23 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             msg = "Database path must not be empty"
             raise ValueError(msg)
+        return value
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def validate_log_level(cls, value: object) -> object:
+        """Normalize and validate the configured logging level name.
+
+        :param value: Raw configured logging level.
+        :return: Uppercase logging level name.
+        :raises ValueError: If the level is not a known logging level name.
+        """
+        if isinstance(value, str):
+            normalized = value.strip().upper()
+            if normalized not in _LOG_LEVELS:
+                msg = f"Log level must be one of: {', '.join(sorted(_LOG_LEVELS))}"
+                raise ValueError(msg)
+            return normalized
         return value
 
     @field_validator("web_session_secret", mode="before")

@@ -146,15 +146,19 @@ Structured filtering and recommendation logic should not depend on an AI provide
 ### Web Application
 
 The HTTP/Web foundation uses FastAPI and server-rendered Jinja2 templates. Create the base application with
-`media_recommender.web.create_app()`. The factory only initializes interface concerns and does not construct
-repositories, providers, or application services. Feature routes define their own FastAPI `Depends` dependencies;
-composition roots and tests can use the application's native `dependency_overrides` mapping.
+`media_recommender.web.create_app()`. The factory initializes interface concerns and a production lifespan; the
+lifespan applies pending migrations, builds the database engine, repositories, application services, and configured
+provider integrations, and attaches them to application state. Feature routes define their own FastAPI `Depends`
+dependencies and resolve those services from application state; tests can use the application's native
+`dependency_overrides` mapping.
 
-Versioned business API routes are available under `/api/v1`. `GET /health/live` is versionless and verifies only that
-the HTTP process can serve requests: it does not query the database or call providers. `GET /api/v1/media/{media_id}`
-retrieves normalized shared catalog metadata through the injected `CatalogService`; it returns movie or TV-show facts,
-but never profile-owned state, streaming availability, library presence, provider transport data, or ORM records. The
-shared page layout and static CSS form the responsive, accessible baseline for later server-rendered screens.
+Versioned business API routes are available under `/api/v1`. Operational health endpoints are versionless and have
+distinct semantics: `GET /health/live` verifies only that the HTTP process can serve requests, `GET /health/ready`
+reports database accessibility and migration state, and `GET /health/providers` reports safe provider configuration and
+operational state without affecting liveness or readiness. `GET /api/v1/media/{media_id}` retrieves normalized shared
+catalog metadata through the injected `CatalogService`; it returns movie or TV-show facts, but never profile-owned
+state, streaming availability, library presence, provider transport data, or ORM records. The shared page layout and
+static CSS form the responsive, accessible baseline for later server-rendered screens.
 
 `POST /api/v1/recommendations` is a deterministic, non-AI, read-only computation API. It maps explicit JSON hard
 constraints to the injected Phase 2 recommendation facade and returns only ordered accepted ranked recommendations
@@ -236,7 +240,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The application listens on port `8000` and exposes `GET /health/live`, which the image healthcheck uses. The image runs
+The application listens on port `8000` and exposes `GET /health/ready`, which the image healthcheck uses. The image runs
 as a non-root user, contains no development dependencies, tests, documentation, local databases, or credentials, and
 stores all mutable state under `/data` (`MEDIA_RECOMMENDER_DATABASE_PATH=/data/media-recommender.db`). Because `/data`
 is a mounted volume, SQLite data survives container recreation and upgrades.
@@ -246,14 +250,17 @@ baked into the image. `MEDIA_RECOMMENDER_WEB_SESSION_SECRET` must be set so sign
 credentials are optional and documented in [Provider integration conventions](docs/provider-integrations.md).
 
 The container stops gracefully on `SIGTERM`, and `docker compose stop` waits for the configured grace period before
-terminating the process. Schema upgrades remain explicit: apply migrations against the mounted database before starting
-a new image version.
+terminating the process. Schema upgrades are explicit and migration-driven: startup applies all pending Alembic
+migrations before serving, and a migration failure aborts startup instead of serving an incompatible schema. Before
+applying pending migrations to an existing database, the application creates and verifies a consistent SQLite snapshot
+under `/data/backups/`. The manual command remains available for offline inspection:
 
 ```bash
 docker compose run --rm media-recommender alembic upgrade head
 ```
 
-Startup ordering, readiness, migration automation, and backup/restore hardening are tracked separately.
+Startup ordering, health semantics, the upgrade path, SQLite backup and restore, logging, and provider-outage behavior
+are documented in [Operations](docs/operations.md).
 
 ## Non-goals
 
@@ -278,11 +285,11 @@ The application can represent movies and TV shows, normalize TMDB metadata, pers
 personal media state in SQLite, and expose those workflows through provider-independent application contracts. The
 automated tests use synthetic data, temporary databases, and mock transports, so normal validation is fully offline.
 
-The repository provides a FastAPI application factory, a production ASGI entry point, a server-rendered application
-shell, documented liveness, media-read, and deterministic recommendation HTTP endpoints, and a production Docker image
-with a reference Docker Compose deployment. There is no complete end-user workflow UI, AI behavior, or MCP interface
-yet. Phase 2 recommendation and synchronization capabilities are exposed as in-process application services for future
-interfaces.
+The repository provides a FastAPI application factory, a production ASGI entry point with a startup lifecycle, a
+server-rendered application shell, documented liveness, readiness, provider-health, media-read, and deterministic
+recommendation HTTP endpoints, and a production Docker image with a reference Docker Compose deployment. There is no
+complete end-user workflow UI, AI behavior, or MCP interface yet. Phase 2 recommendation and synchronization
+capabilities are exposed as in-process application services for future interfaces.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part
@@ -337,6 +344,7 @@ minimum settings; the TMDB token is unnecessary for tests and CI because provide
 
 ```bash
 export MEDIA_RECOMMENDER_DATABASE_PATH="data/media-recommender.db"
+export MEDIA_RECOMMENDER_LOG_LEVEL="INFO"
 export MEDIA_RECOMMENDER_TMDB_API_TOKEN="replace-with-tmdb-api-read-access-token"
 ```
 
@@ -367,8 +375,9 @@ that it upgrades a clean database:
 uv run alembic revision --autogenerate -m "describe schema change"
 ```
 
-Creating an application database engine or session does not create or recreate tables. Normal application startup is
-therefore expected to fail clearly when migrations have not been applied, rather than silently changing the schema.
+Creating an application database engine or session does not create or recreate tables. The production lifespan applies
+pending migrations at startup and aborts startup when a migration fails, so the application never serves an incompatible
+schema. See [Operations](docs/operations.md) for the upgrade, backup, and recovery procedures.
 
 ### Catalog application service
 

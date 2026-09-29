@@ -14,6 +14,7 @@ from media_recommender.application import (
     ConfigurationState,
     OperationalState,
     ProviderKind,
+    ProviderOperationRecorder,
     ProviderStatus,
     WorkflowCounts,
     WorkflowFailureReason,
@@ -519,3 +520,24 @@ def test_csrf_rejection_without_service_is_enforced(
     assert incorrect.status_code == HTTPStatus.FORBIDDEN
     assert cross_origin.status_code == HTTPStatus.FORBIDDEN
     assert "Request rejected" in missing.text
+
+
+def test_transient_failure_is_recorded_in_provider_health(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Record a synthetic provider outage and expose it through provider health."""
+    monkeypatch.setenv(_TMDB_TOKEN_ENV, _SYNTHETIC_TMDB_TOKEN)
+    app = create_app()
+    app.state.provider_operations = ProviderOperationRecorder()
+    service = FakeAvailabilityService(_failure_report(WorkflowFailureReason.TRANSIENT_FAILURE))
+    app.dependency_overrides[get_availability_refresh_service] = lambda: service
+    app.dependency_overrides[get_availability_configuration_state] = lambda: AvailabilityConfigurationState.CONFIGURED
+    client = cast("Client", TestClient(app))
+    token = _csrf_token(client)
+
+    response = _post(client, token=token)
+
+    assert response.status_code == HTTPStatus.OK
+    providers = {item["provider"]: item for item in client.get("/health/providers").json()["providers"]}
+    assert providers["tmdb"]["operational"] == "transient_failure"
+    assert providers["tmdb"]["observed_at"] is not None
+    assert client.get("/health/live").status_code == HTTPStatus.OK
+    assert client.get("/settings").status_code == HTTPStatus.OK
