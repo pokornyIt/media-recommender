@@ -68,6 +68,27 @@ Do not introduce abstractions merely because they may become useful later.
 
 Prefer straightforward code over speculative extensibility.
 
+## Git workflow
+
+Never use the `gh` command; it is not installed.
+
+Before every commit and push, including review fixes:
+
+* Run `uv run --frozen pre-commit run --all-files --show-diff-on-failure` after the final edits and wait for completion.
+* If any hook fails or modifies files, resolve the failure and rerun the complete command until it exits with code 0.
+* Any subsequent file change invalidates the previous validation result.
+* Do not skip hooks or weaken checks to publish changes.
+* In the handoff, report the exact validation command, its exit code, and the pushed commit SHA. Never claim
+  a check passed without observing its successful completion.
+
+Preserve published Git history.
+
+* Fix CI failures and review findings in new commits.
+* Do not amend, rebase, squash, reset, or otherwise rewrite commits already pushed to
+  a remote branch without explicit maintainer authorization.
+* Do not use force push, including `--force-with-lease`, without that authorization.
+* A preference for clean history or one commit per issue does not authorize rewriting.
+
 ## Python
 
 When Python is used:
