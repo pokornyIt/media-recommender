@@ -27,6 +27,10 @@ from media_recommender.web.routes.jellyfin import register_jellyfin_exception_ha
 from media_recommender.web.routes.jellyfin import router as jellyfin_router
 from media_recommender.web.routes.media import register_media_exception_handlers
 from media_recommender.web.routes.pages import router as page_router
+from media_recommender.web.routes.recommendation_workflow import (
+    register_recommendation_workflow_exception_handlers,
+)
+from media_recommender.web.routes.recommendation_workflow import router as recommendation_workflow_router
 from media_recommender.web.routes.recommendations import register_recommendation_exception_handlers
 
 if TYPE_CHECKING:
@@ -89,6 +93,7 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
     app.include_router(health_router)
     app.include_router(page_router)
+    app.include_router(recommendation_workflow_router)
     app.include_router(import_router)
     app.include_router(jellyfin_router)
     app.include_router(availability_router)
@@ -99,4 +104,5 @@ def create_app() -> FastAPI:
     register_import_exception_handlers(app)
     register_jellyfin_exception_handlers(app)
     register_availability_exception_handlers(app)
+    register_recommendation_workflow_exception_handlers(app)
     return app
