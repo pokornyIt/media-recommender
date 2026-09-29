@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}{% if detail %}{{ detail.title }} · Media Recommender{% else %}Media detail · Media Recommender{% endif %}{% endblock %}
+
+{% block errors %}
+{% if error %}
+<p>{{ error }}</p>
+{% endif %}
+{% if success %}
+<p>{{ success }}</p>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if detail %}
+<h1>{{ detail.title }}{% if detail.release_year %} ({{ detail.release_year }}){% endif %}</h1>
+<p>
+  {{ detail.media_type }}
+  {% if detail.original_title %}· Original title: {{ detail.original_title }}{% endif %}
+</p>
+{% if detail.artwork_url %}
+<img src="{{ detail.artwork_url }}" alt="{{ detail.artwork_alt }}" width="180">
+{% endif %}
+
+<section aria-labelledby="shared-facts">
+  <h2 id="shared-facts">Shared catalog facts</h2>
+  <p>These facts come from the shared catalog and are not profile-specific.</p>
+  <dl>
+    <dt>Release date</dt>
+    <dd>{% if detail.release_date %}{{ detail.release_date }}{% else %}Unknown{% endif %}</dd>
+    <dt>Runtime</dt>
+    <dd>{% if detail.runtime_minutes %}{{ detail.runtime_minutes }} minutes{% else %}Unknown{% endif %}</dd>
+    <dt>Genres</dt>
+    <dd>{% if detail.genres %}{{ detail.genres | join(", ") }}{% else %}Unknown{% endif %}</dd>
+    <dt>Production countries</dt>
+    <dd>{% if detail.production_countries %}{{ detail.production_countries | join(", ") }}{% else %}Unknown{% endif %}</dd>
+  </dl>
+  {% if detail.external_ids %}
+  <details>
+    <summary>Provider identifiers (diagnostics)</summary>
+    <ul>
+      {% for external_id in detail.external_ids %}
+      <li>{{ external_id }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</section>
+
+<section aria-labelledby="personal-state">
+  <h2 id="personal-state">Personal state</h2>
+  <p>This state belongs to the active profile and is separate from shared catalog facts.</p>
+  <dl>
+    <dt>Watch state</dt>
+    <dd>{{ detail.watch_status }}</dd>
+    <dt>Recorded watches</dt>
+    <dd>{{ detail.watch_count }}{% if detail.last_watched_at %} · Last watched {{ detail.last_watched_at }}{% endif %}</dd>
+    <dt>Personal rating</dt>
+    <dd>{% if detail.personal_rating is not none %}{{ detail.personal_rating }}{% else %}Unknown{% endif %}</dd>
+    <dt>Reactions</dt>
+    <dd>{% if detail.like_states %}{{ detail.like_states | join(", ") }}{% else %}Unknown{% endif %}</dd>
+  </dl>
+  <form method="post" action="{{ url_for('submit_media_rating', media_id=detail.media_id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <fieldset>
+      <legend>Update personal state</legend>
+      <p>
+        <label for="rating-value">Numeric rating (0-10)</label>
+        <input id="rating-value" name="rating_value" type="number" min="0" max="10" step="0.1" autocomplete="off">
+      </p>
+      <p>
+        <label for="like-state">Reaction</label>
+        <select id="like-state" name="like_state">
+          <option value="">No reaction</option>
+          {% for state in like_states %}
+          <option value="{{ state.value }}">{{ state.value }}</option>
+          {% endfor %}
+        </select>
+      </p>
+      <button type="submit">Save personal state</button>
+    </fieldset>
+  </form>
+</section>
+
+<section aria-labelledby="local-library">
+  <h2 id="local-library">Local library presence</h2>
+  {% if detail.library_presence %}
+  <ul>
+    {% for presence in detail.library_presence %}
+    <li>
+      {{ presence.provider }}:
+      {% if presence.available %}present{% else %}not present{% endif %}
+      {% if presence.play_count is not none %}· Play count {{ presence.play_count }}{% endif %}
+      {% if presence.last_played_at %}· Last played {{ presence.last_played_at }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No local-library presence is known for this title.</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="streaming-availability">
+  <h2 id="streaming-availability">Regional streaming availability</h2>
+  {% if detail.streaming_availability %}
+  <ul>
+    {% for availability in detail.streaming_availability %}
+    <li>
+      {{ availability.service }} · {{ availability.region }} · {{ availability.availability_type }}
+      · Source {{ availability.source_provider }} · Observed {{ availability.observed_at }}
+      {% if availability.attribution %}· {{ availability.attribution }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <p>Availability is a last-observed upstream fact, not a real-time entitlement guarantee.</p>
+  {% else %}
+  <p>No regional streaming availability is known for this title.</p>
+  {% endif %}
+</section>
+
+{% if detail.unknown_fields %}
+<section aria-labelledby="unknown-data">
+  <h2 id="unknown-data">Unknown data</h2>
+  <p>The following facts are unknown and are not inferred:</p>
+  <ul>
+    {% for field in detail.unknown_fields %}
+    <li>{{ field }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if recommendation %}
+<section aria-labelledby="recommendation-context">
+  <h2 id="recommendation-context">Recommendation context</h2>
+  <p>Rank {{ recommendation.rank }} · Score {{ recommendation.score }}</p>
+  {% if recommendation.constraints %}
+  <p>Matched criteria: {{ recommendation.constraints | join("; ") }}</p>
+  {% endif %}
+  {% if recommendation.reasons %}
+  <p>Ranking reasons: {{ recommendation.reasons | join("; ") }}</p>
+  {% endif %}
+  {% if recommendation.warnings %}
+  <p>Warnings: {{ recommendation.warnings | join("; ") }}</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

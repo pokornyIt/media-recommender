@@ -104,6 +104,21 @@ unknown-data warnings. The submitted criteria remain visible in the re-rendered 
 and an empty result is explained as no candidates satisfying the criteria rather than as an application error. The
 result limit only truncates the rendered slice; it never reorders or re-scores recommendations.
 
+## Media detail and personal state
+
+`GET /media/{media_id}` renders one media-detail view through `MediaDetailService`, which composes the shared catalog
+reader, the internal default profile, profile-owned personal state, and known availability. The page keeps shared
+catalog facts, profile-owned personal state, local-library presence, and regional streaming availability conceptually
+separate, and it never reads persistence or provider DTOs directly. Unknown facts are shown as unknown rather than
+inferred, and provider identifiers are exposed only in a diagnostics section.
+
+`POST /media/{media_id}` applies the same session-bound CSRF and exact-origin check before delegating a supported
+personal-state edit to `MediaDetailService.set_rating()`. The web-owned rating uses a deterministic identity derived
+from the profile and media, so repeated edits update one record instead of accumulating duplicates, and
+provider-imported ratings are never modified. Recommendation result cards link to the detail page with their
+already-computed explanation facts, so the detail page can show the recommendation context without recomputing
+filtering or ranking.
+
 ## Migrations and validation
 
 Alembic upgrades an existing Phase 1 revision through the personal data, rating timestamp, Jellyfin presence, and

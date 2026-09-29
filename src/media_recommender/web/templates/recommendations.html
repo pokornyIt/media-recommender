@@ -165,7 +165,7 @@
     <li>
       <article class="recommendation-card" aria-labelledby="recommendation-title-{{ card.rank }}">
         <h3 id="recommendation-title-{{ card.rank }}">
-          {{ card.title }}{% if card.release_year %} ({{ card.release_year }}){% endif %}
+          <a href="{{ card.detail_url }}">{{ card.title }}{% if card.release_year %} ({{ card.release_year }}){% endif %}</a>
         </h3>
         {% if card.artwork_url %}
         <img src="{{ card.artwork_url }}" alt="{{ card.artwork_alt }}" width="120">

@@ -45,6 +45,7 @@ from media_recommender.application.library import (
     LibrarySynchronizationResult,
     LibrarySynchronizationService,
 )
+from media_recommender.application.media_detail import MediaDetail, MediaDetailService
 from media_recommender.application.orchestration import (
     AvailabilityRefreshRequest,
     AvailabilityRefreshWorkflow,
@@ -145,6 +146,8 @@ __all__ = [
     "MediaCatalog",
     "MediaCatalogReader",
     "MediaCatalogWriter",
+    "MediaDetail",
+    "MediaDetailService",
     "MediaDetailsNotFoundError",
     "MediaIdentityCandidate",
     "MediaIdentityEnricher",
