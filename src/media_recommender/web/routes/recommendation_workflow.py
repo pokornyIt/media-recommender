@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Annotated, cast
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse
@@ -139,6 +140,7 @@ class RecommendationCardView:
     matched_constraints: tuple[str, ...]
     ranking_reasons: tuple[str, ...]
     warnings: tuple[str, ...]
+    detail_url: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,7 +286,7 @@ async def submit_recommendations(  # noqa: PLR0913, PLR0917 - FastAPI dependency
             _FAILURE_MESSAGE,
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
         )
-    return _render(templates, request, form, _result_view(result, result_limit), None)
+    return _render(templates, request, form, _result_view(result, result_limit, request), None)
 
 
 async def csrf_rejection_handler(request: Request, error: Exception) -> HTMLResponse:
@@ -414,7 +416,7 @@ def _parse_limit(value: str) -> int:
     return limit
 
 
-def _result_view(result: RecommendationResult, limit: int) -> RecommendationResultView:
+def _result_view(result: RecommendationResult, limit: int, request: Request) -> RecommendationResultView:
     """Map an application result to ordered presentation facts.
 
     The service ordering is preserved exactly; the limit only truncates the
@@ -422,25 +424,30 @@ def _result_view(result: RecommendationResult, limit: int) -> RecommendationResu
 
     :param result: Deterministic application result.
     :param limit: Presentation-only maximum number of rendered results.
+    :param request: Incoming browser request used for detail-link generation.
     :return: Ordered presentation of the accepted recommendations.
     """
     total = len(result.recommendations)
     return RecommendationResultView(
-        cards=tuple(_card_view(item) for item in result.recommendations[:limit]),
+        cards=tuple(_card_view(item, request) for item in result.recommendations[:limit]),
         total=total,
         limit=limit,
         truncated=total > limit,
     )
 
 
-def _card_view(item: RankedRecommendation) -> RecommendationCardView:
+def _card_view(item: RankedRecommendation, request: Request) -> RecommendationCardView:
     """Map one accepted ranked recommendation to presentation facts.
 
     :param item: Accepted ranked application recommendation.
+    :param request: Incoming browser request used for detail-link generation.
     :return: Presentation facts for one result card.
     """
     media = item.media
     runtime = media.runtime if isinstance(media, Movie) else media.episode_runtime
+    constraints = tuple(_constraint_label(match) for match in item.matched_constraints)
+    reasons = tuple(_ranking_reason_label(reason) for reason in item.ranking_reasons)
+    warnings = tuple(_warning_label(warning) for warning in item.warnings)
     return RecommendationCardView(
         rank=item.rank,
         score=item.score,
@@ -455,10 +462,40 @@ def _card_view(item: RankedRecommendation) -> RecommendationCardView:
         watch_status=item.watch_status.value,
         personal_rating=item.personal_rating,
         like_states=tuple(state.value for state in item.like_states),
-        matched_constraints=tuple(_constraint_label(match) for match in item.matched_constraints),
-        ranking_reasons=tuple(_ranking_reason_label(reason) for reason in item.ranking_reasons),
-        warnings=tuple(_warning_label(warning) for warning in item.warnings),
+        matched_constraints=constraints,
+        ranking_reasons=reasons,
+        warnings=warnings,
+        detail_url=_detail_url(request, item, constraints=constraints, reasons=reasons, warnings=warnings),
     )
+
+
+def _detail_url(
+    request: Request,
+    item: RankedRecommendation,
+    *,
+    constraints: tuple[str, ...],
+    reasons: tuple[str, ...],
+    warnings: tuple[str, ...],
+) -> str:
+    """Build the media-detail link carrying the recommendation explanation.
+
+    The link passes the already-computed presentation facts so the detail page
+    can show the recommendation context without recomputing filtering or
+    ranking.
+
+    :param request: Incoming browser request used for URL generation.
+    :param item: Accepted ranked application recommendation.
+    :param constraints: Rendered matched-constraint descriptions.
+    :param reasons: Rendered ranking-reason descriptions.
+    :param warnings: Rendered unknown-data warning descriptions.
+    :return: Absolute media-detail URL with explanation query values.
+    """
+    base = str(request.url_for("media_detail_page", media_id=str(item.media.id.value)))
+    params: list[tuple[str, str]] = [("rank", str(item.rank)), ("score", str(item.score))]
+    params.extend(("constraint", value) for value in constraints)
+    params.extend(("reason", value) for value in reasons)
+    params.extend(("warning", value) for value in warnings)
+    return f"{base}?{urlencode(params)}"
 
 
 def _artwork_url(media: Media) -> str | None:

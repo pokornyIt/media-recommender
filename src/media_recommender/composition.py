@@ -19,6 +19,7 @@ from media_recommender.application import (
     AvailabilityRefreshService,
     CatalogService,
     LibrarySynchronizationService,
+    MediaDetailService,
     MediaIdentityResolver,
     PersonalMediaImportService,
     Phase2Orchestrator,
@@ -65,6 +66,7 @@ class ApplicationServices:
     engine: AsyncEngine
     session_factory: SessionFactory
     catalog_service: CatalogService
+    media_detail_service: MediaDetailService
     orchestrator: Phase2Orchestrator
     readiness_probe: ReadinessProbe
     provider_operations: ProviderOperationRecorder
@@ -140,6 +142,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         library_workflow = JellyfinLibrarySynchronizer(jellyfin_client, library_service)
 
     catalog_service = CatalogService(catalog, metadata_providers)
+    media_detail_service = MediaDetailService(catalog, personal, personal, availability_repository)
     netflix = NetflixFileImporter(PersonalMediaImportService(personal, personal, resolver))
     recommendations = RecommendationService(SqlAlchemyRecommendationDataSource(session_factory))
     orchestrator = Phase2Orchestrator(
@@ -154,6 +157,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         engine=engine,
         session_factory=session_factory,
         catalog_service=catalog_service,
+        media_detail_service=media_detail_service,
         orchestrator=orchestrator,
         readiness_probe=DatabaseReadinessProbe(settings, engine),
         provider_operations=ProviderOperationRecorder(),
@@ -171,6 +175,7 @@ def attach_services(app: FastAPI, services: ApplicationServices) -> None:
     app.state.readiness_probe = services.readiness_probe
     app.state.provider_operations = services.provider_operations
     app.state.catalog_service = services.catalog_service
+    app.state.media_detail_service = services.media_detail_service
     app.state.recommendation_service = services.orchestrator
     app.state.netflix_import_service = services.orchestrator
     app.state.jellyfin_sync_service = services.orchestrator

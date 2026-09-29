@@ -90,6 +90,19 @@ class PersonalMediaRepository(Protocol):
         """
         ...
 
+    async def list_library_presence_for_media(
+        self,
+        profile_id: ProfileId,
+        media_id: MediaId,
+    ) -> tuple[LibraryPresence, ...]:
+        """Return a profile's library-presence records for one catalog item.
+
+        :param profile_id: Internal owner identity.
+        :param media_id: Shared catalog identity.
+        :return: Matching presence records ordered by provider and source identity.
+        """
+        ...
+
     async def get_watch_status(self, profile_id: ProfileId, media_id: MediaId) -> WatchStatus:
         """Derive watched, unwatched, or unknown without collapsing absence.
 

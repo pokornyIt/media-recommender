@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import date
 from http import HTTPStatus
@@ -458,3 +459,18 @@ def test_rejected_candidates_and_private_filter_data_are_not_rendered() -> None:
     assert _REJECTED_TITLE not in response.text
     assert _REJECTED_REASON not in response.text
     assert "filter_result" not in response.text
+
+
+def test_result_cards_link_to_media_detail_with_recommendation_context() -> None:
+    """Link each result card to the media detail page with its explanation context."""
+    service = FakeRecommendationWorkflowService(_result())
+    client = _client(service)
+    token = _csrf_token(client)
+
+    response = _post(client, token=token, data={})
+
+    assert response.status_code == HTTPStatus.OK
+    body = html.unescape(response.text)
+    assert f"/media/{MOVIE_ID}?rank=1&score=35" in body
+    assert "reason=Liked" in body
+    assert "constraint=Included+genre" in body

@@ -206,6 +206,29 @@ class SqlAlchemyPersonalMediaRepository:
             records = (await session.scalars(statement)).all()
         return tuple(record_to_library_presence(record) for record in records)
 
+    async def list_library_presence_for_media(
+        self,
+        profile_id: ProfileId,
+        media_id: MediaId,
+    ) -> tuple[LibraryPresence, ...]:
+        """Return a profile's library-presence records for one catalog item.
+
+        :param profile_id: Internal owner identity.
+        :param media_id: Shared catalog identity.
+        :return: Matching presence records ordered by provider and source identity.
+        """
+        statement = (
+            select(LibraryPresenceRecord)
+            .where(
+                LibraryPresenceRecord.profile_id == str(profile_id.value),
+                LibraryPresenceRecord.media_id == str(media_id.value),
+            )
+            .order_by(LibraryPresenceRecord.source_provider, LibraryPresenceRecord.source_record_id)
+        )
+        async with self._session_factory() as session:
+            records = (await session.scalars(statement)).all()
+        return tuple(record_to_library_presence(record) for record in records)
+
     async def get_watch_status(self, profile_id: ProfileId, media_id: MediaId) -> WatchStatus:
         """Derive three-state watch knowledge from events and explicit states.
 
