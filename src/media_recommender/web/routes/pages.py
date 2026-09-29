@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence  # noqa: TC003 - resolved at runtime by FastAPI dependency wiring.
 from dataclasses import dataclass
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
@@ -16,6 +16,9 @@ from media_recommender.application.provider_status import (
     ProviderStatusReader,
 )
 from media_recommender.config import JellyfinSettings, Settings, TmdbSettings
+
+if TYPE_CHECKING:
+    from media_recommender.application.provider_health import ProviderOperationRecorder
 
 router = APIRouter()
 
@@ -75,15 +78,18 @@ def get_settings_page_context() -> SettingsPageContext:
     )
 
 
-def get_provider_statuses() -> Sequence[ProviderStatus]:
+def get_provider_statuses(request: Request) -> Sequence[ProviderStatus]:
     """Resolve provider status through the typed application-layer contract.
 
-    The default reader performs no provider calls; tests may replace it via
-    FastAPI dependency overrides.
+    The default reader performs no provider calls and merges the latest
+    process-local provider operation outcome when one is recorded. Tests may
+    replace it via FastAPI dependency overrides.
 
+    :param request: Incoming request carrying the current application.
     :return: Safe provider status snapshots in a stable order.
     """
-    reader: ProviderStatusReader = DefaultProviderStatusReader()
+    recorder: ProviderOperationRecorder | None = getattr(request.app.state, "provider_operations", None)
+    reader: ProviderStatusReader = DefaultProviderStatusReader(recorder)
     return reader.read_provider_statuses()
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -84,12 +85,18 @@ def upgrade_to_head(settings: Settings, *, config_path: Path | None = None) -> M
 
 
 def verify_database(database_path: Path) -> None:
-    """Verify SQLite structural integrity of a database file.
+    """Verify SQLite structural integrity of an existing database file.
+
+    The path is rejected before any connection is opened, so verification never
+    creates a missing file.
 
     :param database_path: Database file to verify.
-    :raises MigrationError: If the file is not a structurally valid SQLite database.
+    :raises MigrationError: If the path is not an existing regular file or is not a structurally valid SQLite database.
     """
-    with sqlite3.connect(database_path) as connection:
+    if not database_path.is_file():
+        msg = f"SQLite database file was not found at {database_path.name}"
+        raise MigrationError(msg)
+    with closing(_connect_read_only(database_path)) as connection:
         row = connection.execute("PRAGMA integrity_check").fetchone()
     if row is None or row[0] != "ok":
         msg = f"SQLite integrity check failed for {database_path.name}"
@@ -99,12 +106,18 @@ def verify_database(database_path: Path) -> None:
 def restore_database(backup_path: Path, database_path: Path) -> None:
     """Restore a verified backup over the configured database path.
 
-    The application must be stopped before restoring so no writer is active.
-    Verification failures raise the same error as :func:`verify_database`.
+    The application must be stopped before restoring so no writer is active. A
+    missing or non-regular backup is rejected before any database file is
+    opened, so a failed restore never creates a source file or changes the
+    destination database.
 
     :param backup_path: Verified backup to restore.
     :param database_path: Destination database path.
+    :raises MigrationError: If the backup is missing or not a regular file, or if verification fails.
     """
+    if not backup_path.is_file():
+        msg = f"Backup file was not found at {backup_path.name}"
+        raise MigrationError(msg)
     verify_database(backup_path)
     database_path.parent.mkdir(parents=True, exist_ok=True)
     for sidecar in (
@@ -245,6 +258,15 @@ def _create_verified_backup(database_path: Path, previous: str, head: str) -> Pa
         msg = "Pre-upgrade database backup could not be created and verified; migration was not attempted"
         raise MigrationError(msg) from error
     return backup_path
+
+
+def _connect_read_only(database_path: Path) -> sqlite3.Connection:
+    """Open an existing SQLite database read-only.
+
+    :param database_path: Existing database file.
+    :return: Read-only SQLite connection.
+    """
+    return sqlite3.connect(f"{database_path.resolve().as_uri()}?mode=ro", uri=True)
 
 
 def _copy_database(source: Path, destination: Path) -> None:

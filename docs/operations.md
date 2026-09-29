@@ -121,6 +121,10 @@ Workflow pages render a safe aggregate outcome instead of a server error: absent
 authentication failure, transient failure, partial completion, or failure. An unconfigured provider is reported as
 `not_configured` in workflow results and as `not_configured` or `configuration_error` in provider health.
 
+`/health/providers` reports the latest recorded outcome of a real provider workflow (success, transient failure, or
+configuration error) together with its observation time. The record is kept in process memory only: it is not
+persisted, and after a restart every provider reports `no_recorded_operation` again until a new workflow completes.
+
 ## Rollback expectations
 
 The initial release line supports forward migrations only; there is no automatic downgrade. To roll back an

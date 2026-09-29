@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Protocol, final
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from media_recommender.application.provider_health import ProviderOperationRecorder
+
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic_settings import SettingsError
 
@@ -105,9 +107,17 @@ class DefaultProviderStatusReader:
     Absent provider configuration is reported as ``no_recorded_operation``,
     while present but malformed configuration surfaces as
     ``configuration_error``. No validation details, credentials, or URLs are
-    exposed, and no future workflow outcome can be recorded until one is
-    safely supplied through this contract.
+    exposed. When a process-local operation recorder is supplied, the latest
+    recorded outcome of a real provider workflow is merged into configured
+    provider snapshots.
     """
+
+    def __init__(self, recorder: ProviderOperationRecorder | None = None) -> None:
+        """Initialize the reader with an optional operation recorder.
+
+        :param recorder: Process-local record of the latest provider operations.
+        """
+        self._recorder = recorder
 
     def read_provider_statuses(self) -> Sequence[ProviderStatus]:
         """Derive safe configuration state for each provider without side effects.
@@ -115,20 +125,26 @@ class DefaultProviderStatusReader:
         :return: Status snapshots in a stable provider order.
         """
         return (
-            _provider_status(ProviderKind.TMDB, TmdbSettings),
-            _provider_status(ProviderKind.JELLYFIN, JellyfinSettings),
+            _provider_status(ProviderKind.TMDB, TmdbSettings, self._recorder),
+            _provider_status(ProviderKind.JELLYFIN, JellyfinSettings, self._recorder),
         )
 
 
-def _provider_status(provider: ProviderKind, settings_type: type[TmdbSettings | JellyfinSettings]) -> ProviderStatus:
+def _provider_status(
+    provider: ProviderKind,
+    settings_type: type[TmdbSettings | JellyfinSettings],
+    recorder: ProviderOperationRecorder | None,
+) -> ProviderStatus:
     """Validate a provider settings model and map the outcome to a safe snapshot.
 
     Missing required configuration values are a neutral absence; values that
     are present but invalid surface as ``configuration_error`` without any
-    validation details.
+    validation details. A configured provider also carries the latest recorded
+    operational outcome when one exists.
 
     :param provider: Provider the snapshot describes.
     :param settings_type: Provider settings model to validate from the environment.
+    :param recorder: Process-local record of the latest provider operations.
     :return: Safe configuration and operational state snapshot.
     """
     try:
@@ -139,7 +155,31 @@ def _provider_status(provider: ProviderKind, settings_type: type[TmdbSettings | 
         if _configuration_is_absent(settings_type) and all(error["type"] == "missing" for error in errors.errors()):
             return ProviderStatus(provider=provider, configuration=ConfigurationState.NOT_CONFIGURED)
         return _malformed_status(provider)
-    return ProviderStatus(provider=provider, configuration=ConfigurationState.CONFIGURED)
+    configured = ProviderStatus(provider=provider, configuration=ConfigurationState.CONFIGURED)
+    return _with_recorded_outcome(configured, recorder)
+
+
+def _with_recorded_outcome(
+    status: ProviderStatus,
+    recorder: ProviderOperationRecorder | None,
+) -> ProviderStatus:
+    """Merge the latest recorded provider operation into a configured status.
+
+    :param status: Configuration-derived status snapshot.
+    :param recorder: Process-local record of the latest provider operations.
+    :return: Status carrying the recorded operational outcome when one exists.
+    """
+    if recorder is None:
+        return status
+    outcome = recorder.outcome(status.provider)
+    if outcome is None:
+        return status
+    return ProviderStatus(
+        provider=status.provider,
+        configuration=status.configuration,
+        operational=outcome.operational,
+        observed_at=outcome.observed_at,
+    )
 
 
 def _configuration_is_absent(settings_type: type[TmdbSettings | JellyfinSettings]) -> bool:

@@ -22,6 +22,7 @@ from media_recommender.application import (
     MediaIdentityResolver,
     PersonalMediaImportService,
     Phase2Orchestrator,
+    ProviderOperationRecorder,
     RecommendationService,
 )
 from media_recommender.config import JellyfinSettings, Settings, TmdbSettings
@@ -66,6 +67,7 @@ class ApplicationServices:
     catalog_service: CatalogService
     orchestrator: Phase2Orchestrator
     readiness_probe: ReadinessProbe
+    provider_operations: ProviderOperationRecorder
     closables: tuple[AsyncClosable, ...]
 
     async def aclose(self) -> None:
@@ -154,6 +156,7 @@ def build_services(settings: Settings) -> ApplicationServices:
         catalog_service=catalog_service,
         orchestrator=orchestrator,
         readiness_probe=DatabaseReadinessProbe(settings, engine),
+        provider_operations=ProviderOperationRecorder(),
         closables=tuple(closables),
     )
 
@@ -166,6 +169,7 @@ def attach_services(app: FastAPI, services: ApplicationServices) -> None:
     """
     app.state.engine = services.engine
     app.state.readiness_probe = services.readiness_probe
+    app.state.provider_operations = services.provider_operations
     app.state.catalog_service = services.catalog_service
     app.state.recommendation_service = services.orchestrator
     app.state.netflix_import_service = services.orchestrator

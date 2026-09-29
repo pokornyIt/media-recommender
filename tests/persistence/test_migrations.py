@@ -232,6 +232,57 @@ def test_restore_database_restores_a_verified_backup(tmp_path: Path) -> None:
     verify_database(database_path)
 
 
+def _create_synthetic_media_database(database_path: Path) -> None:
+    """Create a synthetic media table with one row.
+
+    :param database_path: Database file to create.
+    """
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE media_items (id TEXT PRIMARY KEY, title TEXT NOT NULL)")
+        connection.execute("INSERT INTO media_items (id, title) VALUES (?, ?)", ("synthetic-id", "Synthetic Movie"))
+        connection.commit()
+
+
+def test_verify_database_rejects_a_missing_file_without_creating_it(tmp_path: Path) -> None:
+    """Reject a missing database file without creating it."""
+    database_path = tmp_path / "missing.db"
+
+    with pytest.raises(MigrationError):
+        verify_database(database_path)
+
+    assert not database_path.exists()
+
+
+def test_restore_database_rejects_missing_backup_without_touching_destination(tmp_path: Path) -> None:
+    """Reject a missing backup without creating it or changing the destination."""
+    database_path = tmp_path / "destination.db"
+    backup_path = tmp_path / "missing-backup.db"
+    _create_synthetic_media_database(database_path)
+
+    with pytest.raises(MigrationError):
+        restore_database(backup_path, database_path)
+
+    assert not backup_path.exists()
+    with sqlite3.connect(database_path) as connection:
+        stored = connection.execute("SELECT id, title FROM media_items").fetchall()
+    assert stored == [("synthetic-id", "Synthetic Movie")]
+
+
+def test_restore_database_rejects_a_non_regular_backup(tmp_path: Path) -> None:
+    """Reject a directory backup without changing the destination."""
+    database_path = tmp_path / "destination.db"
+    backup_path = tmp_path / "backup-directory"
+    backup_path.mkdir()
+    _create_synthetic_media_database(database_path)
+
+    with pytest.raises(MigrationError):
+        restore_database(backup_path, database_path)
+
+    with sqlite3.connect(database_path) as connection:
+        stored = connection.execute("SELECT id, title FROM media_items").fetchall()
+    assert stored == [("synthetic-id", "Synthetic Movie")]
+
+
 def test_check_readiness_reports_pending_then_current_migrations(tmp_path: Path) -> None:
     """Report pending migrations before upgrade and current state afterwards."""
     database_path = tmp_path / "readiness.db"

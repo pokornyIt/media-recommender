@@ -26,6 +26,7 @@ from media_recommender.application import (
 from media_recommender.config import Settings
 from media_recommender.web.csrf import CsrfValidationError, get_csrf_token, require_csrf_token
 from media_recommender.web.errors import register_exception_handlers
+from media_recommender.web.routes.health import record_provider_outcome
 from media_recommender.web.routes.jellyfin import csrf_rejection_handler as jellyfin_csrf_rejection_handler
 from media_recommender.web.routes.pages import get_provider_statuses, get_templates
 
@@ -207,6 +208,7 @@ async def submit_availability_refresh(
             _unexpected_failure_view(),
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
         )
+    record_provider_outcome(request, report)
     return _render(templates, request, configuration, _view_from_report(report))
 
 
@@ -223,7 +225,7 @@ async def csrf_rejection_handler(request: Request, error: Exception) -> HTMLResp
     if request.url.path != AVAILABILITY_REFRESH_PATH:
         return await jellyfin_csrf_rejection_handler(request, error)
     templates: Jinja2Templates = request.app.state.templates
-    configuration = availability_configuration_state(get_provider_statuses())
+    configuration = availability_configuration_state(get_provider_statuses(request))
     return _render(
         templates,
         request,
