@@ -339,7 +339,28 @@ def test_missing_csrf_token_is_rejected_before_the_service() -> None:
     response = client.post(f"/media/{MOVIE_ID}", data={"rating_value": "8.5"})
 
     assert response.status_code == HTTPStatus.FORBIDDEN
-    assert "Request rejected" in response.text
+    assert "Submit the personal-state form from this page." in response.text
+    assert service.updates == []
+
+
+def test_csrf_rejection_for_dynamic_detail_route_renders_the_media_detail_page() -> None:
+    """Render the media-detail rejection page for a rejected dynamic detail submission.
+
+    The dynamic detail path contains the media identifier, so the rejection
+    handler must recognize the matched route template instead of the literal
+    path and must not fall through to the recommendation rejection page.
+    """
+    service = FakeMediaDetailService(_movie_detail())
+    client = _client(service)
+    _csrf_token(client, f"/media/{MOVIE_ID}")
+
+    response = client.post(f"/media/{MOVIE_ID}", data={"rating_value": "8.5"})
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert "Submit the personal-state form from this page." in response.text
+    assert "Submit the recommendation form from this page." not in response.text
+    assert "Media detail · Media Recommender" in response.text
+    assert "Recommendations · Media Recommender" not in response.text
     assert service.updates == []
 
 

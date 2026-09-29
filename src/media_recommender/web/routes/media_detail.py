@@ -210,13 +210,17 @@ async def csrf_rejection_handler(request: Request, error: Exception) -> HTMLResp
     """Render a safe rejection page for an invalid CSRF or origin check.
 
     Submissions for other server-rendered forms are delegated to their own
-    handler so this feature does not change existing pages.
+    handler so this feature does not change existing pages. The dynamic detail
+    route is recognized through the matched route template recorded by the
+    router, because the concrete request path contains the media identifier and
+    never equals the ``/media/{media_id}`` template.
 
     :param request: Incoming rejected request.
     :param error: Rejected CSRF validation error.
     :return: Shared-layout rejection page.
     """
-    if request.url.path != MEDIA_DETAIL_PATH:
+    route = request.scope.get("route")
+    if getattr(route, "path", None) != MEDIA_DETAIL_PATH:
         return await recommendation_csrf_rejection_handler(request, error)
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(
