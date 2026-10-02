@@ -87,7 +87,7 @@ later supported imports repeatable without treating a provider identity as the a
 
 Phase 3 completes the Web workflows on top of these application services. The server-rendered UI includes the home page,
 a read-only runtime settings overview (`/settings`), provider status inspection (`/providers/status`), local Netflix
-viewing activity and ratings CSV import controls (`/imports/netflix`), Jellyfin library synchronization
+viewing activity CSV import controls (`/imports/netflix`), Jellyfin library synchronization
 (`/synchronizations/jellyfin`), regional streaming-availability refresh (`/availability/refresh`), structured
 recommendation search (`/recommendations`), and media detail and personal rating management (`/media/{media_id}`).
 Provider configuration is supplied through environment settings; the Web UI is intentionally read-only for settings.
@@ -191,8 +191,10 @@ The implemented server-rendered UI includes the shared application shell, home p
 streaming-availability refresh page (`/availability/refresh`), the structured recommendation workflow
 (`/recommendations`), and media detail with personal state controls (`/media/{media_id}`).
 
-`GET /settings` displays current runtime configuration and provider parameters in a read-only overview. Provider
-configuration is managed via environment variables rather than UI editing.
+`GET /settings` displays safe runtime configuration facts in a read-only overview: whether TMDB and Jellyfin
+settings are configured and the configured default region. It does not verify provider connectivity or expose
+credentials or provider configuration values. Provider configuration is managed via environment variables rather
+than UI editing.
 
 `GET /recommendations` renders the criteria form and `POST /recommendations` applies session-bound CSRF and
 exact-origin checks before delegating to the deterministic recommendation facade. Result cards preserve service
