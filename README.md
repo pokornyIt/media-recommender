@@ -85,16 +85,13 @@ events, ratings and reactions, preferences and exclusions, and external provider
 reference the shared catalog rather than duplicating media metadata. Source record and synchronization identities make
 later supported imports repeatable without treating a provider identity as the application user.
 
-The FastAPI HTTP boundary and server-rendered Web shell are implemented; provider settings and configuration UI,
-import and synchronization UI or controls, complete recommendation and media-detail screens, MCP, and deployment
-hardening remain planned. Local Netflix Viewing Activity
-and supported ratings CSV imports now flow through the shared identity resolver into
-profile-owned personal state. Jellyfin movie and series libraries can be synchronized through its supported API,
-including distinct library presence and per-user watched state. Regional streaming availability can be refreshed from
-TMDB watch-provider data and is stored separately from both personal state and local-library presence. Typed hard
-constraints now combine those normalized facts into deterministic profile-specific recommendation candidate sets.
-The in-process Phase 2 orchestration facade coordinates source workflows and deterministic ranked recommendations for
-the implicit default profile while returning structured summaries suitable for future interfaces.
+Phase 3 completes the Web workflows on top of these application services. The server-rendered UI includes the home page,
+a read-only runtime settings overview (`/settings`), provider status inspection (`/providers/status`), local Netflix
+viewing activity CSV import controls (`/imports/netflix`), Jellyfin library synchronization
+(`/synchronizations/jellyfin`), regional streaming-availability refresh (`/availability/refresh`), structured
+recommendation search (`/recommendations`), and media detail and personal rating management (`/media/{media_id}`).
+Provider configuration is supplied through environment settings; the Web UI is intentionally read-only for settings.
+MCP integration, AI assistance, and multi-user authentication remain planned future capabilities.
 
 ## Main project areas
 
@@ -188,14 +185,25 @@ titles fail), and success, and never renders provider URLs, tokens, external ide
 failed refresh does not affect `/settings`, `/providers/status`, `/imports/netflix`, or `/synchronizations/jellyfin`,
 and a repeat submission is an explicit new snapshot rather than an automatic retry.
 
-The implemented server-rendered UI includes the shared application shell, home page, read-only provider status page,
-the Netflix Viewing Activity import page, the Jellyfin library synchronization page, the regional
-streaming-availability refresh page, and the structured recommendation workflow. `GET /recommendations` renders the
-criteria form and `POST /recommendations` applies the same session-bound CSRF and exact-origin check before delegating
-to the existing deterministic application facade. Result cards preserve the service ordering and expose known
-availability, watched/rated state, and structured recommendation reasons; the submitted criteria remain visible after
-submission, and an empty result is explained as a no-match state. Provider configuration editing and media-detail and
-personal-state screens remain future Web work.
+The implemented server-rendered UI includes the shared application shell, home page, read-only settings page
+(`/settings`), provider status inspection (`/providers/status`), the Netflix Viewing Activity import page
+(`/imports/netflix`), the Jellyfin library synchronization page (`/synchronizations/jellyfin`), the regional
+streaming-availability refresh page (`/availability/refresh`), the structured recommendation workflow
+(`/recommendations`), and media detail with personal state controls (`/media/{media_id}`).
+
+`GET /settings` displays safe runtime configuration facts in a read-only overview: whether TMDB and Jellyfin
+settings are configured and the configured default region. It does not verify provider connectivity or expose
+credentials or provider configuration values. Provider configuration is managed via environment variables rather
+than UI editing.
+
+`GET /recommendations` renders the criteria form and `POST /recommendations` applies session-bound CSRF and
+exact-origin checks before delegating to the deterministic recommendation facade. Result cards preserve service
+ordering, expose known availability, watched/rated state, and structured recommendation reasons, and link directly
+to media detail screens.
+
+`GET /media/{media_id}` renders detailed media facts, regional streaming availability, local Jellyfin library
+presence, and profile-owned personal state (watched state and personal rating). `POST /media/{media_id}` allows
+setting or updating the user's personal rating, protected by session-bound CSRF and exact-origin validation.
 
 Web and API routes translate HTTP models to application-service contracts; they must not duplicate business logic or
 render ORM records and provider transport DTOs directly. API responses use a common JSON error envelope where an
@@ -290,11 +298,10 @@ personal media state in SQLite, and expose those workflows through provider-inde
 automated tests use synthetic data, temporary databases, and mock transports, so normal validation is fully offline.
 
 The repository provides a FastAPI application factory, a production ASGI entry point with a startup lifecycle, a
-server-rendered application shell, documented liveness, readiness, provider-health, media-read, and deterministic
-recommendation HTTP endpoints, a structured recommendation workflow, and a production Docker image with a reference
-Docker Compose deployment. There is no AI behavior or MCP interface yet, and media-detail and personal-state screens
-remain future Web work. Phase 2 recommendation and synchronization capabilities are exposed as in-process application
-services reused by the Web interface.
+server-rendered application shell, documented liveness, readiness, provider-health, media-read, REST recommendation, and
+Phase 3 server-rendered Web workflows (settings, provider status, Netflix import, Jellyfin sync, availability refresh,
+recommendations, and media detail with personal state editing), and a production Docker image with a reference
+Docker Compose deployment. There is no AI behavior or MCP interface yet.
 Architecture and public interfaces may change before the first stable release.
 
 Multi-user profile management and authentication are planned future capabilities and are not part
