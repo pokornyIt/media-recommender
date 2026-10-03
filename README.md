@@ -3,8 +3,8 @@
 Media Recommender is a self-hosted application for discovering what to watch by combining personal viewing history,
 ratings, preferences, media metadata, streaming availability, and local media libraries.
 
-The project is designed to work as a standalone web application while exposing the same underlying capabilities
-through an API and MCP.
+The project currently provides a standalone Web UI and REST API, with MCP integration and optional AI assistance
+planned as future capabilities built on the same underlying core.
 
 Media Recommender is intentionally a small self-hosted application for one household. It is not a multi-tenant SaaS
 product or a generic media-management platform; future design decisions should favor the smallest maintainable
@@ -32,7 +32,7 @@ Media Recommender combines several kinds of information:
 * personal viewing history;
 * personal ratings and preferences;
 * deterministic filtering and recommendation rules;
-* optional AI-assisted natural-language interaction;
+* optional AI-assisted natural-language interaction (planned);
 * Personal viewing history, ratings, preferences, and provider mappings are user/profile-specific,
   while media catalog metadata is shared application data.
 
@@ -393,9 +393,9 @@ schema. See [Operations](docs/operations.md) for the upgrade, backup, and recove
 
 ### Catalog application service
 
-`CatalogService` is the provider-independent entry point for catalog workflows currently used by the REST interface,
-including `GET /api/v1/media/{media_id}`; future Web and MCP interfaces can reuse it. It searches explicitly selected
-configured metadata providers, synchronizes normalized detail into the
+`CatalogService` is the provider-independent entry point for catalog workflows currently used by the Web and REST
+interfaces, including `GET /api/v1/media/{media_id}`; future MCP interfaces can reuse it. It searches explicitly
+selected configured metadata providers, synchronizes normalized detail into the
 catalog, and retrieves persisted media by internal or external identity. A refresh preserves the internal application
 identity while replacing catalog metadata with the provider's latest normalized detail; missing detail fields clear
 previously stored values instead of retaining stale metadata.
