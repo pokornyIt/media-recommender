@@ -33,6 +33,29 @@ because an external service is temporarily unavailable.
 
 The image healthcheck uses `GET /health/ready`.
 
+## Compose smoke test
+
+Run the isolated deployment smoke test from the repository root:
+
+```bash
+bash scripts/smoke-compose.sh
+```
+
+It requires Bash, Python 3, a running Docker daemon, and Docker Compose v2 with support for `--wait` and the Compose
+`!reset` tag. The command builds the existing production image, starts the existing Compose service under a unique
+project name, waits at most 120 seconds for its existing healthcheck, and verifies `/health/ready` plus the home page
+from inside the container. It uses an empty temporary env file, empty provider credentials, a synthetic region, and a
+throwaway session secret. The runtime service is attached only to an internal test network, so it cannot contact a
+provider.
+
+The script always removes only its own project containers, network, volume, temporary files, and uniquely tagged
+image. It does not publish port 8000, read a local `.env`, or modify the regular `media-recommender` Compose project
+or its persistent volume. Build-time image pulls and locked dependency installation can still require registry access;
+the started application itself makes no provider requests.
+
+On failure, the command exits non-zero and prints the failing phase, test-project status, and the last service logs
+before cleanup.
+
 ## Upgrade path
 
 Schema upgrades are explicit and migration-driven. Normal upgrades require no manual step:

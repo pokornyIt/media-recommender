@@ -38,3 +38,6 @@ jobs:
 
       - name: Run repository quality checks
         run: uv run --frozen pre-commit run --all-files --show-diff-on-failure
+
+      - name: Run Compose deployment smoke test
+        run: timeout 10m bash scripts/smoke-compose.sh
