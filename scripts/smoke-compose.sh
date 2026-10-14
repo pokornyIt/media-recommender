@@ -143,4 +143,75 @@ if "<h1>Media Recommender</h1>" not in home:
     raise RuntimeError("home page did not contain its expected heading")
 PY
 
+phase="preparing synthetic persisted state"
+compose exec -T media-recommender python - <<'PY'
+"""Store one synthetic catalog record through the production repository."""
+import asyncio
+from datetime import date
+from uuid import UUID
+
+from media_recommender.config import Settings
+from media_recommender.domain import Country, ExternalId, Genre, MediaId, Movie, Runtime
+from media_recommender.persistence.database import create_engine, create_session_factory
+from media_recommender.persistence.repository import SqlAlchemyMediaCatalog
+
+
+async def prepare() -> None:
+    """Persist deterministic state in the mounted smoke-test volume."""
+    engine = create_engine(Settings())
+    try:
+        catalog = SqlAlchemyMediaCatalog(create_session_factory(engine))
+        await catalog.save(Movie(
+            id=MediaId(UUID("00000000-0000-4000-8000-000000000046")),
+            title="Synthetic Smoke Movie", released_on=date(2026, 1, 1), runtime=Runtime(100),
+            genres=(Genre("Science Fiction"),), production_countries=(Country("CZ", "Czechia"),),
+            external_ids=frozenset({ExternalId("tmdb", "smoke-46")}),
+        ))
+    finally:
+        await engine.dispose()
+
+
+asyncio.run(prepare())
+PY
+
+phase="backing up populated state"
+compose exec -T media-recommender python - <<'PY'
+"""Create and validate the documented online SQLite backup."""
+import sqlite3
+
+source = sqlite3.connect("/data/media-recommender.db")
+destination = sqlite3.connect("/data/smoke-backup.db")
+try:
+    source.backup(destination)
+finally:
+    destination.close()
+    source.close()
+with sqlite3.connect("/data/smoke-backup.db") as connection:
+    if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+        raise RuntimeError("backup integrity check failed")
+PY
+
+phase="recreating the populated service"
+compose up --detach --force-recreate --wait --wait-timeout 120
+
+phase="checking persisted HTTP state"
+compose exec -T media-recommender python - <<'PY'
+"""Verify readiness and synthetic state through the deployed HTTP API."""
+import json
+from urllib.request import urlopen
+
+with urlopen("http://127.0.0.1:8000/health/ready", timeout=5) as response:  # noqa: S310
+    if json.loads(response.read()) != {"status": "ready", "database": "ok", "migrations": "current"}:
+        raise RuntimeError("service was not ready after recreation")
+with urlopen("http://127.0.0.1:8000/api/v1/media/00000000-0000-4000-8000-000000000046", timeout=5) as response:  # noqa: S310
+    if "Synthetic Smoke Movie" not in response.read().decode("utf-8"):
+        raise RuntimeError("persisted media was not available after recreation")
+PY
+
+phase="restoring populated state"
+compose stop
+compose run --rm --no-deps --entrypoint python media-recommender -c \
+  "from pathlib import Path; from media_recommender.persistence.migrations import restore_database; restore_database(Path('/data/smoke-backup.db'), Path('/data/media-recommender.db'))"
+compose up --detach --wait --wait-timeout 120
+
 printf 'Compose smoke test passed.\n'

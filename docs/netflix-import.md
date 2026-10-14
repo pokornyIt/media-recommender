@@ -64,9 +64,12 @@ profile label, parses the provider format into Netflix DTOs, and delegates norma
 4. reports ambiguous, unresolved, and invalid rows without including their private titles;
 5. uses opaque source hashes so an unchanged import is idempotent while repeated watches remain distinct.
 
-A normal Viewing Activity export contains only a title and date. This can be insufficient for deterministic matching.
-Configure identity enrichment or populate the shared catalog with enough external ID, media type, release-year, or
-runtime evidence. The importer reports a sparse or ambiguous title instead of selecting an unsafe match.
+A normal Viewing Activity export contains only a title and date. This is insufficient for deterministic matching in the
+default production composition: its resolver has no metadata-enrichment provider, and merely populating the catalog
+does not add independent matching evidence. The importer therefore reports sparse or ambiguous rows as unresolved
+instead of selecting an unsafe match. An application embedding may provide an explicit identity-enrichment boundary
+with independently corroborating release-year or runtime evidence; that is not a claim that a default CSV import will
+resolve successfully.
 
 The exported files, extracted archives, and derived databases are private runtime data. Do not commit them, copy them
 into test fixtures, log their rows, or upload them as CI artifacts. Repository tests use only synthetic records.
