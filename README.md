@@ -260,9 +260,20 @@ is a mounted volume, SQLite data survives container recreation and upgrades.
 For a bind mount, make the target directory writable by the container's non-root UID/GID `10001`; it holds the database
 and its `backups/` directory. Do not make a broader host directory world-writable just for this container.
 
-A fresh deployment starts with an empty catalog. Populate it through the existing `CatalogService` from a trusted
-application integration before running synchronization, availability refresh, recommendations, or media-detail
-workflows. The Web UI does not provide catalog seeding or a catalog editor.
+A fresh deployment starts with an empty catalog. Before running synchronization, availability refresh,
+recommendations, or media-detail workflows, configure TMDB and add the titles that the household wants to use through
+the existing catalog application service. For example, this command synchronizes one known TMDB movie ID; replace the
+placeholder with a real ID and run it from the Compose project directory:
+
+```bash
+docker compose exec media-recommender python -c \
+  "import asyncio; from media_recommender.composition import build_services; \
+from media_recommender.config import Settings; \
+from media_recommender.domain import ExternalId, MediaType; s = build_services(Settings()); \
+asyncio.run(s.catalog_service.sync(ExternalId('tmdb', '<tmdb-movie-id>'), MediaType.MOVIE)); asyncio.run(s.aclose())"
+```
+
+Repeat it for the selected movies or TV shows. The Web UI does not provide catalog seeding or a catalog editor.
 
 Runtime configuration and secrets are supplied through environment variables or a Compose `.env` file and are never
 baked into the image. `MEDIA_RECOMMENDER_WEB_SESSION_SECRET` must be set so signed sessions survive restarts; provider

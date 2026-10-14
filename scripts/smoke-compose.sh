@@ -209,9 +209,56 @@ with urlopen("http://127.0.0.1:8000/api/v1/media/00000000-0000-4000-8000-0000000
 PY
 
 phase="restoring populated state"
+compose exec -T media-recommender python - <<'PY'
+"""Change the backed-up record through the production repository."""
+import asyncio
+from datetime import date
+from uuid import UUID
+
+from media_recommender.config import Settings
+from media_recommender.domain import Country, ExternalId, Genre, MediaId, Movie, Runtime
+from media_recommender.persistence.database import create_engine, create_session_factory
+from media_recommender.persistence.repository import SqlAlchemyMediaCatalog
+
+
+async def mutate() -> None:
+    """Overwrite the synthetic record so restore has an observable effect."""
+    engine = create_engine(Settings())
+    try:
+        catalog = SqlAlchemyMediaCatalog(create_session_factory(engine))
+        await catalog.save(Movie(
+            id=MediaId(UUID("00000000-0000-4000-8000-000000000046")),
+            title="Changed Smoke Movie", released_on=date(2026, 1, 1), runtime=Runtime(100),
+            genres=(Genre("Science Fiction"),), production_countries=(Country("CZ", "Czechia"),),
+            external_ids=frozenset({ExternalId("tmdb", "smoke-46")}),
+        ))
+    finally:
+        await engine.dispose()
+
+
+asyncio.run(mutate())
+PY
 compose stop
 compose run --rm --no-deps --entrypoint python media-recommender -c \
   "from pathlib import Path; from media_recommender.persistence.migrations import restore_database; restore_database(Path('/data/smoke-backup.db'), Path('/data/media-recommender.db'))"
 compose up --detach --wait --wait-timeout 120
+
+phase="checking restored state"
+compose exec -T media-recommender python - <<'PY'
+"""Verify schema, integrity, and restored HTTP facts after recovery."""
+import json
+import sqlite3
+from urllib.request import urlopen
+
+with sqlite3.connect("/data/media-recommender.db") as connection:
+    if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+        raise RuntimeError("restored database integrity check failed")
+with urlopen("http://127.0.0.1:8000/health/ready", timeout=5) as response:  # noqa: S310
+    if json.loads(response.read()) != {"status": "ready", "database": "ok", "migrations": "current"}:
+        raise RuntimeError("service was not ready after restore")
+with urlopen("http://127.0.0.1:8000/api/v1/media/00000000-0000-4000-8000-000000000046", timeout=5) as response:  # noqa: S310
+    if "Synthetic Smoke Movie" not in response.read().decode("utf-8"):
+        raise RuntimeError("restore did not recover the backed-up HTTP state")
+PY
 
 printf 'Compose smoke test passed.\n'

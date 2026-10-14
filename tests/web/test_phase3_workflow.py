@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import date
 from http import HTTPStatus
 from typing import TYPE_CHECKING, cast
@@ -64,7 +65,21 @@ def test_web_reads_real_service_state_after_application_restart(
         assert response.status_code == HTTPStatus.OK
         assert response.json()["title"] == movie.title
 
+        detail_response = client.get(f"/media/{movie.id.value}")
+        assert detail_response.status_code == HTTPStatus.OK
+        assert movie.title in detail_response.text
+        token_match = re.search(r'name="csrf_token" value="([^"]+)"', detail_response.text)
+        assert token_match is not None
+        rating_response = client.post(
+            f"/media/{movie.id.value}",
+            data={"csrf_token": token_match.group(1), "rating_value": "8.5"},
+        )
+        assert rating_response.status_code == HTTPStatus.OK
+        assert "8.5" in rating_response.text
+
     with _client(create_app()) as restarted_client:
         response = restarted_client.get(f"/api/v1/media/{movie.id.value}")
         assert response.status_code == HTTPStatus.OK
         assert response.json()["external_ids"] == [{"namespace": "tmdb", "value": "phase3-46"}]
+        detail_response = restarted_client.get(f"/media/{movie.id.value}")
+        assert "8.5" in detail_response.text
