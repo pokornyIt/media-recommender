@@ -3,8 +3,8 @@
 Media Recommender is a self-hosted application for discovering what to watch by combining personal viewing history,
 ratings, preferences, media metadata, streaming availability, and local media libraries.
 
-The project currently provides a standalone Web UI and REST API, with MCP integration and optional AI assistance
-planned as future capabilities built on the same underlying core.
+The project currently provides a standalone Web UI and REST API. MCP integration and optional AI assistance are not
+implemented.
 
 Media Recommender is intentionally a small self-hosted application for one household. It is not a multi-tenant SaaS
 product or a generic media-management platform; future design decisions should favor the smallest maintainable
@@ -257,6 +257,24 @@ as a non-root user, contains no development dependencies, tests, documentation, 
 stores all mutable state under `/data` (`MEDIA_RECOMMENDER_DATABASE_PATH=/data/media-recommender.db`). Because `/data`
 is a mounted volume, SQLite data survives container recreation and upgrades.
 
+For a bind mount, make the target directory writable by the container's non-root UID/GID `10001`; it holds the database
+and its `backups/` directory. Do not make a broader host directory world-writable just for this container.
+
+A fresh deployment starts with an empty catalog. Before running synchronization, availability refresh,
+recommendations, or media-detail workflows, configure TMDB and add the titles that the household wants to use through
+the existing catalog application service. For example, this command synchronizes one known TMDB movie ID; replace the
+placeholder with a real ID and run it from the Compose project directory:
+
+```bash
+docker compose exec media-recommender python -c \
+  "import asyncio; from media_recommender.composition import build_services; \
+from media_recommender.config import Settings; \
+from media_recommender.domain import ExternalId, MediaType; s = build_services(Settings()); \
+asyncio.run(s.catalog_service.sync(ExternalId('tmdb', '<tmdb-movie-id>'), MediaType.MOVIE)); asyncio.run(s.aclose())"
+```
+
+Repeat it for the selected movies or TV shows. The Web UI does not provide catalog seeding or a catalog editor.
+
 Runtime configuration and secrets are supplied through environment variables or a Compose `.env` file and are never
 baked into the image. `MEDIA_RECOMMENDER_WEB_SESSION_SECRET` must be set so signed sessions survive restarts; provider
 credentials are optional and documented in [Provider integration conventions](docs/provider-integrations.md).
@@ -344,10 +362,10 @@ outer Web interface layer and do not change the application core's provider-inde
 
 ### Continuous integration
 
-GitHub Actions runs `uv sync --all-groups --frozen` followed by the same `pre-commit --all-files` quality gate used
-locally for every pull request and push to `main`. The workflow uses Python 3.14 and the committed `uv.lock`; it does
-not receive provider credentials and does not upload databases, environment files, provider payloads, or other runtime
-artifacts.
+GitHub Actions runs `uv sync --all-groups --frozen`, the same `pre-commit --all-files` quality gate used locally, and
+the isolated Compose smoke test for every pull request and push to `main`. The workflow uses Python 3.14 and the
+committed `uv.lock`; it does not receive provider credentials and does not upload databases, environment files,
+provider payloads, or other runtime artifacts.
 
 ### Runtime configuration
 

@@ -44,9 +44,11 @@ bash scripts/smoke-compose.sh
 It requires Bash, Python 3, a running Docker daemon, and Docker Compose v2 with support for `--wait` and the Compose
 `!reset` tag. The command builds the existing production image, starts the existing Compose service under a unique
 project name, waits at most 120 seconds for its existing healthcheck, and verifies `/health/ready` plus the home page
-from inside the container. It uses an empty temporary env file, empty provider credentials, a synthetic region, and a
-throwaway session secret. The runtime service is attached only to an internal test network, so it cannot contact a
-provider.
+from inside the container. It then writes one synthetic catalog item through the production repository, creates an
+online SQLite backup, force-recreates the service on the same volume, and verifies the item through the deployed HTTP
+API. Finally it stops the service, restores the verified backup with the documented helper, and starts it again. It
+uses an empty temporary env file, empty provider credentials, a synthetic region, and a throwaway session secret. The
+runtime service is attached only to an internal test network, so it cannot contact a provider.
 
 The script always removes only its own project containers, network, volume, temporary files, and uniquely tagged
 image. It does not publish port 8000, read a local `.env`, or modify the regular `media-recommender` Compose project
@@ -77,7 +79,8 @@ available for recovery.
 1. Stop the container.
 2. Restore the verified pre-upgrade backup over the database path.
 3. Verify the restored database.
-4. Start the previous image version.
+4. Start the explicitly selected previous image version; `docker compose up -d` alone continues to use the image tag in
+   the current Compose configuration.
 
 The restore helper is available in the image and verifies both the backup and the restored database:
 

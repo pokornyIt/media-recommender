@@ -1,7 +1,7 @@
 # Phase 2 application workflows
 
 Phase 2 combines personal Netflix data, a Jellyfin library, shared regional streaming availability, deterministic
-identity resolution, filtering, and ranking. `Phase2Orchestrator` is the in-process facade intended for later API and
+identity resolution, filtering, and ranking. `Phase2Orchestrator` is the in-process facade used by the existing API and
 Web layers. It composes existing application and integration boundaries; it does not write provider payloads directly
 to persistence or require background-job infrastructure.
 
